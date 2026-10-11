@@ -21,10 +21,12 @@ MAPPING = {
     11: "June 2026",
 }
 
-# tenative since we need to look over the exact columns to see if there is anything else that we would want for this model
+# Columns read from the raw CSVs; roles and reasons are in docs/architecture/data-dictionary.md.
+# Includes the target, split key, and filter-only columns, not just model features.
 COLS = ["FlightDate","Month","DayofMonth","DayOfWeek","Reporting_Airline",
         "Origin","Dest","CRSDepTime","CRSArrTime","CRSElapsedTime",
-        "Distance","ArrDel15","Cancelled","Diverted"]
+        "Distance","DepTimeBlk","ArrTimeBlk","OriginState","DestState",
+        "OriginCityMarketID","DestCityMarketID","ArrDel15","Cancelled","Diverted"]
 
 
 def memory_check(path):
@@ -33,7 +35,7 @@ def memory_check(path):
 
     print(f"File on disk: {os.path.getsize(path)/1e6:.0f} MB")
     print(f"Rows: {len(df):,}")
-    print(f"In memory (14 cols): {mb:.0f} MB")
+    print(f"In memory ({len(COLS)} cols): {mb:.0f} MB")
     print(f"Estimated full year: {mb*12/1000:.2f} GB")
 
 
