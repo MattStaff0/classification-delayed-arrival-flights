@@ -34,6 +34,16 @@
 4. LightGBM (Light Gradient Boosting Model)
    - Grows trees _leaf-wise_ so it is lighter on compute
 
+## What features are we using?
+
+Only columns known at booking time are model inputs. The full column-by-column decision (kept, filter-only, dropped, and why) is in [data-dictionary.md](data-dictionary.md).
+
+- **Carrier and route:** `Reporting_Airline`, `Origin`, `Dest`, `OriginState`, `DestState`, `OriginCityMarketID`, `DestCityMarketID`
+- **Schedule:** `CRSDepTime`, `CRSArrTime`, `DepTimeBlk`, `ArrTimeBlk`, `CRSElapsedTime`, `Distance`
+- **Calendar:** `DayOfWeek`, `DayofMonth`, `Month` (pending PRE-2)
+- **Target:** `ArrDel15`
+- **Derived, for the ablation:** historical late rate (computed from train months only) and days to nearest US holiday
+
 ## How are we using our training / validation / testing splits
 
 We are going to use Out-of-Time sampling for our training // validation // testing splits
