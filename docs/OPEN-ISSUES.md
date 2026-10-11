@@ -33,6 +33,41 @@ _**Identifiers here are numbers**, `OI-1` upward, and that is deliberate. Number
 
 ## Example Template
 
+### Workflow: open issue → merged PR
+
+Every piece of work follows these steps, in order. Nothing is committed directly to `main`.
+
+1. **Log it here.** Add a row to the `Open` table of the matching section, using the next number for that prefix (e.g. `PRE-8`). Phrase the question so it has a definite answer.
+2. **Open a GitHub issue.** Title it `<ID>: <question>` (e.g. `PRE-1: Which columns go into data/processed?`) and use the issue body template below. Note the GitHub number (`#N`) — it is different from our ID.
+3. **Branch off an up-to-date `main`.** Branch name is `<id-lowercase>-<short-topic>`:
+   ```bash
+   git switch main && git pull
+   git switch -c pre-1-column-selection
+   ```
+4. **Do the work.** Start each commit message with the ID (e.g. `PRE-1: add data dictionary`). If the work raises a new question, log it as a new row instead of growing this branch.
+5. **Open a PR and link the issue.** Title it the same as the issue. Put `Closes #N` in the PR body so GitHub closes the issue automatically when the PR merges.
+6. **Resolve it here, on the same branch.** Move the row from `Open` to `Resolved` and fill in Answer, Answered by, Date, and Filed in. Push to the PR so the resolution merges together with the work.
+7. **Review and merge.** At least one teammate reviews the PR before it merges into `main`. Delete the branch after merging.
+
+### GitHub issue body template
+
+```markdown
+## Question
+<Same question as the Open row.>
+
+## Why it matters
+<What breaks or gets decided wrong if we guess. Name what it blocks.>
+
+## Context
+- <Relevant files, docs, related IDs>
+
+## Done when
+- [ ] <Concrete, checkable deliverable>
+- [ ] Row moved to Resolved in `docs/OPEN-ISSUES.md`
+```
+
+### Table format
+
 - Each open issue MUST FOLLOW THIS FORMAT
 
 ### Open
