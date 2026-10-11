@@ -21,6 +21,7 @@ MAPPING = {
     11: "June 2026",
 }
 
+# tenative since we need to look over the exact columns to see if there is anything else that we would want for this model
 COLS = ["FlightDate","Month","DayofMonth","DayOfWeek","Reporting_Airline",
         "Origin","Dest","CRSDepTime","CRSArrTime","CRSElapsedTime",
         "Distance","ArrDel15","Cancelled","Diverted"]
