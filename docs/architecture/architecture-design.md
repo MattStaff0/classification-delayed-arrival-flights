@@ -39,10 +39,25 @@
 Only columns known at booking time are model inputs. The full column-by-column decision (kept, filter-only, dropped, and why) is in [data-dictionary.md](data-dictionary.md).
 
 - **Carrier and route:** `Reporting_Airline`, `Origin`, `Dest`, `OriginState`, `DestState`, `OriginCityMarketID`, `DestCityMarketID`
-- **Schedule:** `CRSDepTime`, `CRSArrTime`, `DepTimeBlk`, `ArrTimeBlk`, `CRSElapsedTime`, `Distance`
+- **Schedule:** `DepTimeBlk`, `ArrTimeBlk` (time of day, PRE-3), `CRSElapsedTime`, `Distance`. `CRSDepTime`/`CRSArrTime` are read but are not model inputs.
 - **Calendar:** `DayOfWeek`, `DayofMonth`, `Month` (read but not a model input on the current data, PRE-2; tested in EXP-3)
 - **Target:** `ArrDel15`
-- **Derived, for the ablation:** historical late rate (computed from train months only) and days to nearest US holiday
+- **Derived, for the ablation:** historical late rate (computed from train months only), days to nearest US holiday, historical weather delay rate (computed from the training months)
+
+## How each model encodes features
+
+Both models get the **same features**; only the encoding differs, because the models use their inputs differently. The per-column plan is in the encoding columns of [data-dictionary.md](data-dictionary.md).
+
+- **Where it happens:** in the model pipeline (scikit-learn `Pipeline` + `ColumnTransformer`), not in `preprocess.py`. The processed files hold raw values.
+- **Fit on train only:** every encoder and scaler is fit on the training split, then applied unchanged to validation and test. Fitting on all the data would let validation/test values shape the encoding (leakage).
+- **Logistic regression** learns one weight per input column:
+  - Categorical columns → one-hot (`OneHotEncoder(handle_unknown="ignore")`), so each category gets its own weight. Integer codes would force a straight-line effect — e.g. late rate rises through the day and falls after 20:00 (July 2025), which one weight on a 0–18 code cannot fit.
+  - Numeric columns → standardized (`StandardScaler`), so the solver converges and regularization treats features on a comparable scale.
+- **Gradient boosting** splits on thresholds:
+  - No scaling needed.
+  - Ordered categories (`DepTimeBlk`, `ArrTimeBlk`) → ordinal codes 0–18, so one split can express "departures after 15:00".
+  - Unordered categories (airline, airports, states, city markets) → the library's native categorical support.
+- **Unseen categories** in validation/test (PRE-6): logistic regression ignores them (all-zero one-hot row); for gradient boosting, confirm how the chosen library (XGBoost or LightGBM) handles an unseen category before relying on it.
 
 ## How are we using our training / validation / testing splits
 
