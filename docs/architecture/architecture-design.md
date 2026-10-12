@@ -40,7 +40,7 @@ Only columns known at booking time are model inputs. The full column-by-column d
 
 - **Carrier and route:** `Reporting_Airline`, `Origin`, `Dest`, `OriginState`, `DestState`, `OriginCityMarketID`, `DestCityMarketID`
 - **Schedule:** `CRSDepTime`, `CRSArrTime`, `DepTimeBlk`, `ArrTimeBlk`, `CRSElapsedTime`, `Distance`
-- **Calendar:** `DayOfWeek`, `DayofMonth`, `Month` (pending PRE-2)
+- **Calendar:** `DayOfWeek`, `DayofMonth`, `Month` (read but not a model input on the current data, PRE-2; tested in EXP-3)
 - **Target:** `ArrDel15`
 - **Derived, for the ablation:** historical late rate (computed from train months only) and days to nearest US holiday
 
