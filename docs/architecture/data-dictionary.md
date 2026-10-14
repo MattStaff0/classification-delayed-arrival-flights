@@ -53,6 +53,33 @@ These are read during preprocessing to apply the instance definition, then dropp
 | `Diverted`  | Diverted flight indicator (1 = Yes)  | keep rows where `Diverted == 0`  | Same as above.                                                                                           |
 | `ArrDel15`  | (target)                             | keep rows where not null         | A row without a label cannot be trained or scored.                                                       |
 
+## Data Quality (PRE-4)
+
+Measured on all 12 months **after** the instance filter, with `notebooks/PRE_4_Measure_NaN_counts.py`.
+
+| Check | What was checked | Result | Action in preprocessing |
+| ----- | ---------------- | ------ | ----------------------- |
+| Missing values | Nulls in all 20 columns in `COLS` | 2 rows, both `CRSElapsedTime` (2026-03 train, 2026-06 test). Every other column is complete. | Drop (rule below) |
+| Out-of-range | Day/weekday ranges, valid hhmm times, valid time blocks, `CRSElapsedTime > 0`, `Distance > 0`, `Origin != Dest`, `ArrDel15` in {0, 1} | 1 row: `CRSElapsedTime = −60` (2025-11, OO 3574 DTW → LEX, scheduled to arrive before it departs). All other rules: 0. | Drop (rule below) |
+| Duplicates | Same flight twice, keyed on `FlightDate` + `Reporting_Airline` + `Flight_Number_Reporting_Airline` + `Origin` | 0 | None |
+
+**Cleaning rule:** keep rows where `CRSElapsedTime > 0`. This one rule removes all 3 bad rows (a null fails the comparison too).
+
+**Rows after cleaning:**
+
+| Split | Months | Rows |
+| ----- | ------ | ---- |
+| Train | 2025-07 – 2026-03 | 5,105,534 |
+| Validation | 2026-04 | 591,206 |
+| Test | 2026-05 – 2026-06 | 1,199,540 |
+| **Total** | | **6,896,280** (proposal: 6,896,283; −3 from the cleaning rule) |
+
+**Takeaways for the report:**
+
+- The data is almost complete: 3 bad rows out of 6.9M (0.00004%). No imputation is needed, so the model pipeline has no imputer.
+- `isna()` alone would have missed the `−60` row; it only shows up in the range checks.
+- Flight number alone does not identify a flight: date + carrier + flight number flags 100,654 "duplicates" in July 2025 alone, all of them multi-leg flights (e.g. AA 9 DFW → ABQ, then ABQ → DFW). Adding `Origin` to the key brings that to 0.
+
 ## Dropped Columns
 
 | Group                      | Columns                                                                                                                                        | Reason                                                                                                                                      |
