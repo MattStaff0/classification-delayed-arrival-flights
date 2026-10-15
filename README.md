@@ -23,9 +23,21 @@ python3 scripts/fetch_bts_data.py --out data/raw
 This fetches all 12 months, skips any already present, and names them
 `YYYY-MM-flight-data.csv`. Takes a few minutes.
 
+## Build the processed data
+
+```bash
+python3 scripts/preprocess.py
+```
+
+Run from the project root. Filters to completed flights, drops the 3 bad rows,
+splits by date, and writes `data/processed/{train,val,test}.parquet`. Stops with
+an error if any check fails; re-running overwrites the files. See
+`docs/architecture/data-dictionary.md` (Processed Files) for the contents.
+
 ## Scripts
 
 - `scripts/fetch_bts_data.py` — download and extract the monthly data
 - `scripts/utils.py` — row counts and late rates per month
+- `scripts/preprocess.py` — build the train/val/test Parquet files
 
 `docs/readme.html` is the BTS field documentation for all 109 columns.

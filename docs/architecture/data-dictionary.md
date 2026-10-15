@@ -80,6 +80,32 @@ Measured on all 12 months **after** the instance filter, with `notebooks/PRE_4_M
 - `isna()` alone would have missed the `−60` row; it only shows up in the range checks.
 - Flight number alone does not identify a flight: date + carrier + flight number flags 100,654 "duplicates" in July 2025 alone, all of them multi-leg flights (e.g. AA 9 DFW → ABQ, then ABQ → DFW). Adding `Origin` to the key brings that to 0.
 
+## Processed Files (PRE-7)
+
+Built by `python3 scripts/preprocess.py` (run from the project root, ~15 s). `data/` is gitignored, so rebuild the files with that command after cloning.
+
+| File | Months | Rows | Late rate |
+| ---- | ------ | ---- | --------- |
+| `data/processed/train.parquet` | 2025-07 – 2026-03 | 5,105,534 | 0.224 |
+| `data/processed/val.parquet` | 2026-04 | 591,206 | 0.202 |
+| `data/processed/test.parquet` | 2026-05 – 2026-06 | 1,199,540 | 0.236 |
+
+Each file has the same 18 columns: `COLS` minus the filter-only `Cancelled` and `Diverted`. Rows are sorted by `FlightDate`.
+
+| Stored type | Columns |
+| ----------- | ------- |
+| `datetime64[ms]` | `FlightDate` (milliseconds because Parquet has no seconds unit) |
+| `category` | `Reporting_Airline`, `Origin`, `Dest`, `DepTimeBlk`, `ArrTimeBlk`, `OriginState`, `DestState` |
+| `int64` | `Month`, `DayofMonth`, `DayOfWeek`, `CRSDepTime`, `CRSArrTime`, `OriginCityMarketID`, `DestCityMarketID` |
+| `float64` | `CRSElapsedTime`, `Distance` |
+| `int8` | `ArrDel15` (0/1) |
+
+- **Raw values only.** No encoding or scaling is stored; each model applies its own, fit on train only (see the encoding columns above).
+- **`category` is storage, not encoding.** Its internal integer codes are alphabetical and must never be used as numeric model inputs.
+- **Unseen categories (PRE-6):** validation has none. Test has 51 origin / 48 destination rows from two airports that start service in June 2026 and never appear in train: CSG (Delta, to/from ATL) and LNS (SkyWest, to/from ORD).
+- **Validation is less late than test** (0.202 vs 0.236). The threshold is chosen on validation, so it may under-flag delays on test; a limitation to state in the report.
+- **Re-running overwrites the files.** The checks run before writing, so a failed run leaves the old files in place. Output is deterministic for the same raw data and split dates. Write EXP-2's extended-data output to a separate folder if both versions are needed.
+
 ## Dropped Columns
 
 | Group                      | Columns                                                                                                                                        | Reason                                                                                                                                      |
