@@ -1,0 +1,41 @@
+{
+  "run": "MOD-1",
+  "date": "2026-10-19",
+  "sklearn_version": "1.9.0",
+  "train_rows": 5105534,
+  "validation_rows": 591206,
+  "features": {
+    "one_hot": [
+      "Reporting_Airline",
+      "Origin",
+      "Dest",
+      "DepTimeBlk",
+      "ArrTimeBlk",
+      "OriginState",
+      "DestState",
+      "OriginCityMarketID",
+      "DestCityMarketID",
+      "DayofMonth",
+      "DayOfWeek"
+    ],
+    "scaled": [
+      "CRSElapsedTime",
+      "Distance"
+    ]
+  },
+  "hyperparameters": {
+    "C": 1.0,
+    "tol": 0.0001,
+    "max_iter": 1000
+  },
+  "iterations": 50,
+  "validation": {
+    "pr_auc": 0.3154450467853589,
+    "floor": 0.2019888160810276,
+    "lift": 1.5616956072400487,
+    "threshold": 0.23328360483361513,
+    "precision": 0.2877038808194825,
+    "recall": 0.620682147432945,
+    "f1": 0.39316470535190945
+  }
+}

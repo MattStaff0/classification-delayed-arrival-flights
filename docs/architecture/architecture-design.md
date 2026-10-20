@@ -7,15 +7,10 @@
 
 ## Baseline Model
 
-- The baseline model that we are going to use is a simple KNN algorithm or a logistic regression
-
-### Considerations
+- The baseline model that we are going to use is a logistic regression algorithm
 
 - A logisitc regression model uses an error based approach in which we use binary cross-entropy loss and error to train the model to make better predicitions.
   - Hyperparameters: # training iterations, learning rate, regularization constant, convergance limit
-
-- A KNN uses a similarity approach in which we choose the _k_ nearest instances and use either majority voting or weighted voting to choose which class a query belongs to.
-  - Hyperparameters: K, distance metric used, wieght function for weighted KNN, search algorithm (K-dim tree)
 
 ## Models to experiment - Ensemble Decision Tree Based Algorithms
 

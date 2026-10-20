@@ -21,8 +21,6 @@ MAPPING = {
     11: "June 2026",
 }
 
-# Columns read from the raw CSVs; roles and reasons are in docs/architecture/data-dictionary.md.
-# Includes the target, split key, and filter-only columns, not just model features.
 COLS = ["FlightDate","Month","DayofMonth","DayOfWeek","Reporting_Airline",
         "Origin","Dest","CRSDepTime","CRSArrTime","CRSElapsedTime",
         "Distance","DepTimeBlk","ArrTimeBlk","OriginState","DestState",

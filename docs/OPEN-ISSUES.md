@@ -102,6 +102,19 @@ Every piece of work follows these steps, in order. Nothing is committed directly
 | PRE-6 | How many val/test rows have a category value that never appears in train? | Validation: 0 for every column. Test: 51 `Origin` / 48 `Dest` rows (same counts for city market), from two airports that start service in June 2026: CSG (Delta, ATL) and LNS (SkyWest, ORD). Airline and state: 0. Negligible; logistic regression uses `OneHotEncoder(handle_unknown="ignore")`. | Team (`scripts/preprocess.py` report) | 2026-10-14 | `docs/architecture/data-dictionary.md` (Processed Files) |
 | PRE-7 | What format and layout do processed files use? | `data/processed/{train,val,test}.parquet`, one file per split, split on `FlightDate`, 18 columns of raw cleaned values (no encoding/scaling), sorted by date. Built by `scripts/preprocess.py`, which checks nulls, columns, labels, row counts, and split order before writing, then reads the files back. | Team | 2026-10-14 | `scripts/preprocess.py`, `README.md`, `docs/architecture/data-dictionary.md` (Processed Files) |
 
+## Model Creation - MOD-X
+
+### Open
+
+| ID    | Question | Why it matters | Who can answer | Raised |
+| ----- | -------- | -------------- | -------------- | ------ |
+
+### Resolved
+
+| ID  | Question | Answer | Answered by | Date | Filed in |
+| --- | -------- | ------ | -------- | ---- | -------- |
+| MOD-1 | What validation PR-AUC and F1 does a logistic regression baseline reach on the 13 base features (no derived features), trained on train (Jul 2025 – Mar 2026) and scored on validation (Apr 2026)? | Validation PR-AUC 0.315 vs. the 0.202 floor (1.56× chance). At the F1-maximizing threshold 0.233: precision 0.288, recall 0.621, F1 0.393; flagging every flight late scores F1 0.336, so the margin is small. Settings: one-hot (11 columns, `handle_unknown="ignore"`) + standardized `CRSElapsedTime`/`Distance`, `LogisticRegression` (`lbfgs`, `C=1.0`, `tol=1e-4`), converged in 50 of 1,000 iterations; fit on train only, test not scored. A 50K-row train sample reached 0.301, so 100× the data added only +0.014: the model looks limited by its features and linear form, not data size. | Team (`src/baseline/logistic_regression.py`) | 2026-10-19 | `src/baseline/logistic_regression.py`, `reports/logistic_regression/figures/` (`mod1_pr_curve.png`, `mod1_thresholds.png`) |
+
 ## Experiments - EXP-X
 
 All experiments keep validation (Apr 2026) and test (May–Jun 2026) fixed and change one thing at a time, so each comparison isolates one design choice. Results are reported as validation PR-AUC and F1; test is scored only for the final comparison.
