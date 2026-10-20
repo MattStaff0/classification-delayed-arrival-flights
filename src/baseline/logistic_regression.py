@@ -108,11 +108,8 @@ def plot_pr_curve(m, floor, path):
     figure, ax = plt.subplots(figsize=(6, 4.5))
 
     ax.plot(recall, precision, color=BLUE, linewidth=2, label=f"Logistic Regression (PR-AUC {m['pr_auc']:.3f})")
-
     ax.axhline(floor, color=GRAY, linewidth=1, linestyle="--", label=f"No-Skill Floor ({floor:.3f})")
-
     ax.scatter(m["recall"], m["precision"], color=BLUE, s=64, zorder=3, edgecolor="white", linewidth=2)
-
     ax.annotate(f"Threshold {m["threshold"]:.3f}", (m["recall"], m["precision"]), xytext=(8,8), textcoords="offset points")
    
     ax.set(xlabel="Recall", ylabel="Precision", xlim=(0,1), ylim=(0,1))
@@ -148,7 +145,6 @@ def main():
     training, training_y, validation, validation_y = split_target_from_data(training, validation)
 
     pipeline = build_pipeline()
-
 
     # fits the model on our training data
     pipeline.fit(training, training_y)
@@ -187,7 +183,7 @@ def main():
             "pr_auc": float(metrics["pr_auc"]),
             "floor": float(floor),
             "f1_floor": float(2 * floor / (1 + floor)),
-            "lift": float(metrics["pr_auc"] / floor),       # lift is how much better the model is how many times better the model is than guessing, needed since we have to compre this model once we tune it against the testing data
+            "pr_auc_over_floor": float(metrics["pr_auc"] / floor),       # pr_auc_over_floor is how much better the model is how many times better the model is than guessing, needed since we have to compre this model once we tune it against the testing data
             "threshold": float(metrics["threshold"]),
             "precision": float(metrics["precision"]),
             "recall": float(metrics["recall"]),
