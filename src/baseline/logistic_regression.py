@@ -8,6 +8,9 @@ from sklearn.metrics import average_precision_score, precision_recall_curve, pre
 import matplotlib.pyplot as plt
 import numpy as np
 import joblib
+import json
+import sklearn
+from datetime import date
 
 # Constants
 MODEL_PATH = "models/mod1_logreg.joblib"
@@ -18,6 +21,7 @@ SCALED_COLUMNS = ["CRSElapsedTime", "Distance"]
 TARGET = "ArrDel15"
 
 FIGURES_PATH = "reports/logistic_regression/figures"
+METRICS_PATH = "reports/logistic_regression/mod1_metrics.json"
 BLUE, ORANGE, AQUA, GRAY = "#2a78d6", "#eb6834", "#1baf7a", "#8a8a85"
 
 # hyperparameters
@@ -164,6 +168,30 @@ def main():
     model_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump({"pipeline": pipeline, "threshold": metrics["threshold"]}, model_path)
     print(f"Saved model to {model_path}")
+
+    # save the metrics for this run (numpy values converted to plain python so json can write them)
+    results = {
+        "run": "MOD-1",
+        "date": date.today().isoformat(),
+        "sklearn_version": sklearn.__version__,
+        "train_rows": len(training),
+        "validation_rows": len(validation),
+        "features": {"one_hot": ONE_HOT_COLUMNS, "scaled": SCALED_COLUMNS},
+        "hyperparameters": {"C": REGULARIZATION_CONST, "tol": CONVERGENCE_LIMIT, "max_iter": MAX_ITERS},
+        "iterations": int(pipeline.named_steps["model"].n_iter_[0]),
+        "validation": {
+            "pr_auc": float(metrics["pr_auc"]),
+            "floor": float(floor),
+            "lift": float(metrics["pr_auc"] / floor),       # lift is how much better the model is how many times better the model is than guessing, needed since we have to compre this model once we tune it against the testing data
+            "threshold": float(metrics["threshold"]),
+            "precision": float(metrics["precision"]),
+            "recall": float(metrics["recall"]),
+            "f1": float(metrics["f1"]),
+        },
+    }
+    with open(METRICS_PATH, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"Saved metrics to {METRICS_PATH}")
 
 if __name__ == "__main__":
     main()
