@@ -7,8 +7,10 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.metrics import average_precision_score, precision_recall_curve, precision_recall_fscore_support
 import matplotlib.pyplot as plt
 import numpy as np
+import joblib
 
 # Constants
+MODEL_PATH = "models/mod1_logreg.joblib"
 PREPROCESS_PATH = "data/processed"
 ONE_HOT_COLUMNS = ["Reporting_Airline", "Origin", "Dest", "DepTimeBlk", "ArrTimeBlk", "OriginState", "DestState",
                    "OriginCityMarketID", "DestCityMarketID", "DayofMonth", "DayOfWeek"]
@@ -156,6 +158,12 @@ def main():
     figure_directory.mkdir(parents=True, exist_ok=True)
     plot_pr_curve(metrics, floor, figure_directory / "mod1_pr_curve.png")
     plot_thresholds(metrics, figure_directory / "mod1_thresholds.png")
+
+    # save the model
+    model_path = Path(MODEL_PATH)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump({"pipeline": pipeline, "threshold": metrics["threshold"]}, model_path)
+    print(f"Saved model to {model_path}")
 
 if __name__ == "__main__":
     main()
