@@ -4,7 +4,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-from sklearn.metrics import average_precision_score, precision_recall_curve, precision_recall_fscore_support
+from sklearn.metrics import average_precision_score, precision_recall_curve, precision_recall_fscore_support, confusion_matrix
 import matplotlib.pyplot as plt
 import numpy as np
 import joblib
@@ -73,6 +73,9 @@ def evaluate(y_true, probabilities):
     # recompute at the given threshold
     preds = (probabilities >= threshold).astype(int)
 
+    # get the confusion matrix counts
+    tn, fp, fn, tp = confusion_matrix(y_true, preds).ravel()
+
     # precision, recall, f1 score, no support val
     p, r, f, _ = precision_recall_fscore_support(y_true, preds, average="binary")
 
@@ -81,7 +84,8 @@ def evaluate(y_true, probabilities):
             "precision": p,
             "recall": r,
             "f1": f,
-            "curve": (precision, recall, thresholds, f1)}
+            "curve": (precision, recall, thresholds, f1),
+            "confusion": {"tp": int(tp), "fp": int(fp), "fn": int(fn), "tn": int(tn)}}
 
 
 # Report
@@ -188,6 +192,7 @@ def main():
             "precision": float(metrics["precision"]),
             "recall": float(metrics["recall"]),
             "f1": float(metrics["f1"]),
+            "confusion_matrix": metrics["confusion"],
         },
     }
     with open(METRICS_PATH, "w") as f:
