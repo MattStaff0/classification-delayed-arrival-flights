@@ -14,14 +14,7 @@ pip install -r requirements.txt
 
 ## Get the data
 
-The CSVs are not in git (~3 GB). Download them with:
-
-```bash
-python3 scripts/fetch_bts_data.py --out data/raw
-```
-
-This fetches all 12 months, skips any already present, and names them
-`YYYY-MM-flight-data.csv`. Takes a few minutes.
+Download the selected data from the BTS Website.
 
 ## Build the processed data
 
