@@ -182,6 +182,7 @@ def main():
         "validation": {
             "pr_auc": float(metrics["pr_auc"]),
             "floor": float(floor),
+            "f1_floor": float(2 * floor / (1 + floor)),
             "lift": float(metrics["pr_auc"] / floor),       # lift is how much better the model is how many times better the model is than guessing, needed since we have to compre this model once we tune it against the testing data
             "threshold": float(metrics["threshold"]),
             "precision": float(metrics["precision"]),
