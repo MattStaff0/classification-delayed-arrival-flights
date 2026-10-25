@@ -118,3 +118,16 @@ All experiments keep validation (Apr 2026) and test (May–Jun 2026) fixed and c
 
 | ID  | Question | Answer | Answered by | Date | Filed in |
 | --- | -------- | ------ | ----------- | ---- | -------- |
+
+## Model Evaluation - EVAL-X
+
+### Open
+
+| ID     | Question | Why it matters | Who can answer | Raised |
+| ------ | -------- | -------------- | -------------- | ------ |
+| EVAL-1 | Can we move the evaluation code (`evaluate`, `print_report`, saving the metrics JSON, and the plots) out of `logistic_regression.py` into a shared module in `src/` that any model can import? | Every model should report the same metrics in the same JSON format so runs can be compared. Doing it before MOD-2 means only one script needs changing. Makes `src` a package, so scripts run with `python -m`. | Team | 2026-10-25 |
+
+### Resolved
+
+| ID  | Question | Answer | Answered by | Date | Filed in |
+| --- | -------- | ------ | ----------- | ---- | -------- |
