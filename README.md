@@ -34,3 +34,8 @@ an error if any check fails; re-running overwrites the files. See
 - `scripts/preprocess.py` — build the train/val/test Parquet files
 
 `docs/readme.html` is the BTS field documentation for all 109 columns.
+
+## Running the baseline model
+
+- Run from the project root
+- `python -m src.baseline.logistic_regression` - runs the logistic regression baseline, adds metrics to `reports/logistic_regression`

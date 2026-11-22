@@ -118,3 +118,16 @@ All experiments keep validation (Apr 2026) and test (May–Jun 2026) fixed and c
 
 | ID  | Question | Answer | Answered by | Date | Filed in |
 | --- | -------- | ------ | ----------- | ---- | -------- |
+
+## Model Evaluation - EVAL-X
+
+### Open
+
+| ID     | Question | Why it matters | Who can answer | Raised |
+| ------ | -------- | -------------- | -------------- | ------ |
+
+### Resolved
+
+| ID  | Question | Answer | Answered by | Date | Filed in |
+| --- | -------- | ------ | ----------- | ---- | -------- |
+| EVAL-1 | Can we move the evaluation code (`evaluate`, `print_report`, saving the metrics JSON, and the plots) out of `logistic_regression.py` into a shared module in `src/` that any model can import? | Yes. `src/evaluation.py` holds `evaluate`, `print_report`, the two plots, `save_model`, `validation_summary` (the `"validation"` block every model's JSON shares), and `save_json`. Each model script builds its own run info and hyperparameters. `src` is now a package, so scripts run from the project root with `python -m src.baseline.logistic_regression`. Rerunning the baseline gave the same metrics as before. | Team | 2026-10-25 | `src/evaluation.py`, `src/baseline/logistic_regression.py`, `README.md` |
