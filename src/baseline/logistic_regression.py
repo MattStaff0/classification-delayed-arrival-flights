@@ -8,7 +8,7 @@ import sklearn
 from datetime import date
 
 # importing the evalution metrics file
-from src.evaluation import evaluate, print_report, plot_pr_curve, plot_thresholds, save_model, validation_summary, save_json
+from src.evaluation import evaluate, print_report, plot_pr_curve, plot_thresholds, save_model, validation_summary, save_json, log_to_wandb
 
 
 # Constants
@@ -27,6 +27,10 @@ MAX_ITERS = 1000
 # LEARNING_RATE = .001
 REGULARIZATION_CONST = 1.0
 CONVERGENCE_LIMIT = 1e-4
+
+# weights and biases constants
+WANDB_MODEL_TAG = "logistic-regression"
+WANDB_FEATURE_TAG = "13-baseline-features"
 
 def load_splits():
     training_split = pd.read_parquet(Path(PREPROCESS_PATH) / "train.parquet")
@@ -76,8 +80,11 @@ def main():
 
     figure_directory = Path(FIGURES_PATH)
     figure_directory.mkdir(parents=True, exist_ok=True)
-    plot_pr_curve(metrics, floor, figure_directory / "mod1_pr_curve.png", "Logistic Regression")
-    plot_thresholds(metrics, figure_directory / "mod1_thresholds.png")
+
+    pr_curve_path = figure_directory / "mod1_pr_curve.png"
+    thresholds_path = figure_directory / "mod1_thresholds.png"
+    plot_pr_curve(metrics, floor, pr_curve_path, "Logistic Regression")
+    plot_thresholds(metrics, thresholds_path)
 
     # save the model
     save_model(model_path_raw=MODEL_PATH, metrics=metrics, pipeline=pipeline)
@@ -99,6 +106,9 @@ def main():
 
     # save the metrics to the specified path with the results
     save_json(METRICS_PATH, results=results)
+
+    # save the metrics to weights and biases
+    log_to_wandb(results=results, figures={"pr_curve": pr_curve_path, "thresholds": thresholds_path}, tags=[WANDB_MODEL_TAG, WANDB_FEATURE_TAG])
 
 if __name__ == "__main__":
     main()

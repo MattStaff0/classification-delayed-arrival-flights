@@ -75,3 +75,53 @@ an error if any check fails; re-running overwrites the files. See
 
 - Run from the project root
 - `uv run python -m src.baseline.logistic_regression` - runs the logistic regression baseline, adds metrics to `reports/logistic_regression`
+
+## Tracking runs with Weights & Biases
+
+Every model run is logged to the shared W&B project `flight-classifier` (team
+`mattstaff0-texas-christian-university`), so every configuration tried is kept,
+not just the last one. The JSON files in `reports/` stay the committed record of
+final results.
+
+**One-time setup (each teammate):**
+
+1. Create a free account at [wandb.ai](https://wandb.ai) and ask to be invited to the team.
+2. Log in from the project root and paste your API key when asked:
+   ```bash
+   uv run wandb login
+   ```
+   The key is saved in your user settings, not in the repo. Never commit it.
+
+**Running without a login or network:** prefix any model command with
+`WANDB_MODE=disabled`. All W&B calls do nothing; metrics, plots, and JSON are
+still written.
+
+```bash
+WANDB_MODE=disabled uv run python -m src.baseline.logistic_regression
+```
+
+`WANDB_MODE=offline` instead saves the run in `wandb/` (ignored by git); upload
+it later with `uv run wandb sync wandb/<run-folder>`.
+
+**Adding W&B to a new model script:** import `log_to_wandb` from
+`src.evaluation` and call it once, after `save_json`. Do not import `wandb` in
+the model script.
+
+```python
+log_to_wandb(results=results,
+             figures={"pr_curve": pr_curve_path, "thresholds": thresholds_path},
+             tags=[MODEL_TAG, FEATURE_TAG])
+```
+
+- **Run name** comes from `results["run"]`: the issue ID (`MOD-2`, `EXP-4`, ...).
+- **Config** is every key of `results` except `validation`; **summary** is the
+  `validation` block. Put hyperparameters and run info in `results`.
+- **Tags** are the model and the feature set, in kebab-case, spelled the same
+  in every script (e.g. `logistic-regression`, `xgboost`, `13-baseline-features`,
+  `late-rate`).
+- **Figure keys** are always `pr_curve` and `thresholds`, so plots from
+  different models share a panel.
+- **`history`** (optional) is a list of dicts, one per training round, e.g.
+  `[{"train_logloss": 0.62, "val_logloss": 0.63}, ...]`; each key becomes a
+  line chart. Use it for per-tree loss in boosted models.
+- Only train and validation are logged. Never score or log the test split.

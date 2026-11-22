@@ -4,8 +4,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import joblib
 import json
+import wandb
 
 BLUE, ORANGE, AQUA, GRAY = "#2a78d6", "#eb6834", "#1baf7a", "#8a8a85"
+WANDB_PROJECT = "flight-classifier"
+WANDB_ENTITY = "mattstaff0-texas-christian-university"
 
 
 # Evaluation 
@@ -118,3 +121,27 @@ def save_json(metric_path, results):
     with open(metric_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Saved metrics to {metric_path}")
+
+# connection to weights and biases
+def log_to_wandb(results, figures, tags, history=None):
+    # initialize a new run
+    with wandb.init(name=results["run"], 
+                     project=WANDB_PROJECT, 
+                     entity=WANDB_ENTITY, 
+                     tags=tags, 
+                     config={label: results[label] for label in results.keys() if label != "validation"}) as run:
+
+        # log the validation metrics to the run summary
+        run.summary.update(results["validation"])
+
+        # log the history if it exists
+        if history:
+            for i in range(len(history)):
+                run.log(history[i], step=i)
+                
+        # log the figures to the run
+        run.log({figure_name: wandb.Image(figures[figure_name]) for figure_name in figures.keys()})
+
+
+
+

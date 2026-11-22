@@ -14,3 +14,6 @@ __pycache__/
 
 # Saved models (rebuild with the training scripts)
 models/
+
+# Weights and Biases
+wandb/
