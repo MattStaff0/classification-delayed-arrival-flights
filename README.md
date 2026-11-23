@@ -103,19 +103,35 @@ WANDB_MODE=disabled uv run python -m src.baseline.logistic_regression
 `WANDB_MODE=offline` instead saves the run in `wandb/` (ignored by git); upload
 it later with `uv run wandb sync wandb/<run-folder>`.
 
-**Adding W&B to a new model script:** import `log_to_wandb` from
-`src.evaluation` and call it once, after `save_json`. Do not import `wandb` in
-the model script.
+**Adding W&B to a new model script:** import `log_to_wandb` and
+`compute_loss` from `src.evaluation`. Every model reports a `train` block next
+to `validation` (required: `log_to_wandb` raises `KeyError` without it). Call
+`log_to_wandb` once, after `save_json`. Do not import `wandb` in the model
+script.
 
 ```python
+training_probabilities = pipeline.predict_proba(training)[:, 1]
+results["train"] = compute_loss(training_y, training_probabilities)
+results["validation"] = validation_summary(metrics=metrics, floor=floor)
+save_json(METRICS_PATH, results=results)
 log_to_wandb(results=results,
              figures={"pr_curve": pr_curve_path, "thresholds": thresholds_path},
              tags=[MODEL_TAG, FEATURE_TAG])
 ```
 
 - **Run name** comes from `results["run"]`: the issue ID (`MOD-2`, `EXP-4`, ...).
-- **Config** is every key of `results` except `validation`; **summary** is the
-  `validation` block. Put hyperparameters and run info in `results`.
+- **Config** is every key of `results` except `train` and `validation`. Put
+  hyperparameters and run info in `results`.
+- **Summary** is the `train` and `validation` blocks, nested, so W&B shows
+  `train.log_loss`, `validation.log_loss`, `validation.pr_auc`, and so on.
+  `train` holds only threshold-free scores (`log_loss`, `pr_auc`, `floor`,
+  `pr_auc_over_floor`); the threshold, F1, and confusion matrix are chosen and
+  reported on validation only.
+- **Checking for overfitting:** compare `train.pr_auc_over_floor` with
+  `validation.pr_auc_over_floor`, not raw log loss. Train (Jul–Mar) and
+  validation (Apr) have different late rates, and log loss moves with the late
+  rate: for MOD-1, validation log loss (0.479) is lower than train (0.504) only
+  because April has fewer late flights.
 - **Tags** are the model and the feature set, in kebab-case, spelled the same
   in every script (e.g. `logistic-regression`, `xgboost`, `13-baseline-features`,
   `late-rate`).
