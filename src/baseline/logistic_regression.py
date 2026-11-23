@@ -8,7 +8,7 @@ import sklearn
 from datetime import date
 
 # importing the evalution metrics file
-from src.evaluation import evaluate, print_report, plot_pr_curve, plot_thresholds, save_model, validation_summary, save_json, log_to_wandb
+from src.evaluation import evaluate, print_report, plot_pr_curve, plot_thresholds, save_model, validation_summary, save_json, log_to_wandb, compute_loss
 
 
 # Constants
@@ -69,6 +69,9 @@ def main():
     # fits the model on our training data
     pipeline.fit(training, training_y)
 
+    # training probabilities
+    training_probabilities = pipeline.predict_proba(training)[:,1]
+
     # give us the raw probabilities so we can find the correct threshold to predict at
     # predict_proba returns two cols -> [p(ontime) [p(late)]]
     validation_probabilities = pipeline.predict_proba(validation)[:,1]
@@ -103,6 +106,7 @@ def main():
 
     # add the validation results such as F1 score, PR-auc, confusion matrix since this can reused per model
     results["validation"] = validation_summary(metrics=metrics, floor=floor)
+    results["train"] = compute_loss(training_y, training_probabilities)
 
     # save the metrics to the specified path with the results
     save_json(METRICS_PATH, results=results)

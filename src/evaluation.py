@@ -1,5 +1,5 @@
 from pathlib import Path
-from sklearn.metrics import average_precision_score, precision_recall_curve, precision_recall_fscore_support, confusion_matrix
+from sklearn.metrics import average_precision_score, precision_recall_curve, precision_recall_fscore_support, confusion_matrix, log_loss
 import matplotlib.pyplot as plt
 import numpy as np
 import joblib
@@ -15,6 +15,8 @@ WANDB_ENTITY = "mattstaff0-texas-christian-university"
 def evaluate(y_true, probabilities):
     pr_auc = average_precision_score(y_true, probabilities)
     precision, recall, thresholds = precision_recall_curve(y_true, probabilities)
+
+    logloss = log_loss(y_true, probabilities)
 
     # drop the extra trailing point on the recall and precision series
     precision, recall = precision[:-1], recall[:-1]
@@ -34,12 +36,27 @@ def evaluate(y_true, probabilities):
     p, r, f, _ = precision_recall_fscore_support(y_true, preds, average="binary")
 
     return {"pr_auc": pr_auc,
+            "log_loss": logloss,
             "threshold": threshold,
             "precision": p,
             "recall": r,
             "f1": f,
             "curve": (precision, recall, thresholds, f1),
             "confusion": {"tp": int(tp), "fp": int(fp), "fn": int(fn), "tn": int(tn)}}
+
+def compute_loss(y_true, probabilities):
+    floor = y_true.mean()
+    pr_auc = average_precision_score(y_true, probabilities)
+
+    pr_auc_over_floor = pr_auc / floor
+    logloss = log_loss(y_true, probabilities)
+
+    return {
+        "log_loss": float(logloss),
+        "pr_auc": float(pr_auc),
+        "floor": float(floor),
+        "pr_auc_over_floor": float(pr_auc_over_floor)
+    }
 
 
 # Report
@@ -105,6 +122,7 @@ def save_model(model_path_raw, pipeline, metrics):
 def validation_summary(metrics, floor):
     return {
                 "pr_auc": float(metrics["pr_auc"]),
+                "log_loss": float(metrics["log_loss"]),
                 "floor": float(floor),
                 "f1_floor": float(2 * floor / (1 + floor)),
                 "pr_auc_over_floor": float(metrics["pr_auc"] / floor),       # pr_auc_over_floor is how much better the model is how many times better the model is than guessing, needed since we have to compare this model once we tune it against the testing data
@@ -124,15 +142,31 @@ def save_json(metric_path, results):
 
 # connection to weights and biases
 def log_to_wandb(results, figures, tags, history=None):
+    """
+    Log the results and figures to Weights and Biases (wandb), both training and validation metrics are logged to the run summary. If a history of metrics is provided, it will be logged as well.
+
+    Args:
+        results (dict): Dictionary containing the results to log.
+        figures (dict): Dictionary containing the figures to log.
+        tags (list): List of tags to associate with the wandb run.
+        history (list, optional): List of dictionaries containing the history of metrics to log. Defaults to None.
+    
+    Returns:
+        None
+    """
     # initialize a new run
     with wandb.init(name=results["run"], 
                      project=WANDB_PROJECT, 
                      entity=WANDB_ENTITY, 
                      tags=tags, 
-                     config={label: results[label] for label in results.keys() if label != "validation"}) as run:
+                     config={label: results[label] for label in results.keys() if label not in ["validation", "train"]}) as run:
 
-        # log the validation metrics to the run summary
-        run.summary.update(results["validation"])
+        # log both the training and validation metrics to the run summary
+        overall_metrics = {}
+        overall_metrics["validation"] = results["validation"]
+        overall_metrics["train"] = results["train"]
+
+        run.summary.update(overall_metrics)
 
         # log the history if it exists
         if history:
