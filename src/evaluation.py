@@ -62,7 +62,9 @@ def compute_loss(y_true, probabilities):
 # Report
 def print_report(m ,floor):
     # floor for the pr-auc is just the late rate of the validation set
+    print("For the validation set:")
     print(f"PR-AUC: {m['pr_auc']:.3f} (Floor is validation late rate (total late flights / total flights): {floor:.3f})")
+    print(f"PR-AUC-over-floor: {float(m["pr_auc"] / floor)}")
     print(f"threshold: {m['threshold']:.3f}")
     print(f"precision: {m['precision']:.3f}")
     print(f"recall: {m['recall']:.3f}")

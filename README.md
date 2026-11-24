@@ -140,4 +140,13 @@ log_to_wandb(results=results,
 - **`history`** (optional) is a list of dicts, one per training round, e.g.
   `[{"train_logloss": 0.62, "val_logloss": 0.63}, ...]`; each key becomes a
   line chart. Use it for per-tree loss in boosted models.
+- **Compare runs on `validation.*`, never on `val_logloss`.** With `history`,
+  the summary holds two validation log losses that mean different things. W&B
+  copies the *last* history step into the summary, so `val_logloss` is the
+  final round trained, which with early stopping is always
+  `early_stopping_rounds` past the best one (MOD-2 default run: 0.4788 at
+  round 67). `validation.log_loss` is computed from the predictions of the
+  model actually used, at the best iteration (0.4762 at round 17). Sort and
+  filter the runs table by `validation.pr_auc`, `validation.f1`, and
+  `validation.log_loss`.
 - Only train and validation are logged. Never score or log the test split.
