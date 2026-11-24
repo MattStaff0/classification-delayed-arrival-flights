@@ -39,6 +39,26 @@ GAMMA = 0.0
 MAX_CAT_TO_ONEHOT = 4
 MAX_CAT_THRESHOLD = 64
 
+FIXED_PARAMS = {"tree_method":TREE_METHOD,
+                "enable_categorical":True,
+                "eval_metric":EVAL_METRIC,
+                "early_stopping_rounds":EARLY_STOPPING_ROUNDS,
+                "n_estimators":N_ESTIMATORS,
+                "random_state":RANDOM_STATE}
+
+
+
+DEFAULT_HYPERPARAMS_DICT = {"learning_rate":LEARNING_RATE,
+                "max_depth":MAX_DEPTH,
+                "min_child_weight":MIN_CHILD_WEIGHT,
+                "subsample":SUBSAMPLE,
+                "colsample_bytree":COLSAMPLE_BYTREE,
+                "reg_lambda":REG_LAMBDA,
+                "reg_alpha":REG_ALPHA,
+                "gamma":GAMMA,
+                "max_cat_to_onehot":MAX_CAT_TO_ONEHOT,
+                "max_cat_threshold":MAX_CAT_THRESHOLD}
+
 
 def load_splits():
     training_split = pd.read_parquet(Path(PREPROCESS_PATH) / "train.parquet")
@@ -62,29 +82,9 @@ def encode(train, val):
     for col in CATEGORICAL_COLUMNS + ORDINAL_COLUMNS:
         val[col] = pd.Categorical(val[col], categories=train[col].cat.categories)
 
-
     return train, val
 
-def build_model():
-    model = xgb.XGBClassifier(tree_method=TREE_METHOD,
-                              enable_categorical=True,
-                              eval_metric=EVAL_METRIC,
-                              early_stopping_rounds=EARLY_STOPPING_ROUNDS,
-                              n_estimators=N_ESTIMATORS,
-                              random_state=RANDOM_STATE,
-                              learning_rate=LEARNING_RATE,
-                              max_depth=MAX_DEPTH,
-                              min_child_weight=MIN_CHILD_WEIGHT,
-                              subsample=SUBSAMPLE,
-                              colsample_bytree=COLSAMPLE_BYTREE,
-                              reg_lambda=REG_LAMBDA,
-                              reg_alpha=REG_ALPHA,
-                              gamma=GAMMA,
-                              max_cat_to_onehot=MAX_CAT_TO_ONEHOT,
-                              max_cat_threshold=MAX_CAT_THRESHOLD)
-    return model
-
-def main():
+def prepare_data(): 
     # load the splits
     training, validation = load_splits()
 
@@ -94,46 +94,18 @@ def main():
     # encode the columns to categories for xgboost
     training, validation = encode(train=training, val=validation)
 
-    # make the model
-    model = build_model()
+    return training, training_y, validation, validation_y
 
-    # fit the model, verbose will report every 100 rounds the rounds are based on N_ESTIMATORS
-    model.fit(training, training_y, eval_set=[(training, training_y), (validation, validation_y)], verbose=100)
-
-    # print where the model stopped and what the log loss at that round
-    best_iteration = model.best_iteration
-    best_log_loss = model.best_score
-    print(f'Best Iteration: {best_iteration}, Best Log Loss: {best_log_loss}')
-
-    # training and validation probabilites
-    training_probabilities = model.predict_proba(training)[:, 1]
-    validation_probabilities = model.predict_proba(validation)[:, 1]
-    validation_floor = validation_y.mean()
-
-    validation_metrics = evaluate(validation_y, validation_probabilities)
-    training_metrics = compute_loss(training_y, training_probabilities)
-    print_report(validation_metrics, validation_floor)
-    print(f'Training PR-auc-over-floor: {training_metrics["pr_auc_over_floor"]}')
-
-    # create the figures 
-    figure_directory = Path(FIGURES_PATH)
-    figure_directory.mkdir(parents=True, exist_ok=True)
-
-    pr_curve_path = figure_directory / "mod2_pr_curve.png"
-    thresholds_path = figure_directory / "mod2_thresholds.png"
-    plot_pr_curve(validation_metrics, validation_floor, pr_curve_path, "XGBoost")
-    plot_thresholds(validation_metrics, thresholds_path)
-
-    # save the model 
-    save_model(model_path_raw=MODEL_PATH, metrics=validation_metrics, pipeline=model)
-
+def build_history(model):
     # weights and bias history
     training_history = model.evals_result()["validation_0"]["logloss"]
     validation_history = model.evals_result()["validation_1"]["logloss"]
 
     # history expects one dict per round in form -> [{train-loss: x, val-loss: y}, ...]
     history = [{"train_logloss": training_loss, "val_logloss": validation_loss} for training_loss, validation_loss in zip(training_history, validation_history)]
+    return history
 
+def build_results(model, training, training_metrics, validation, validation_metrics, validation_floor, history, hyperparams):
     results = {
       "run": "MOD-2",
       "date": date.today().isoformat(),
@@ -142,21 +114,8 @@ def main():
       "validation_rows": len(validation),
       "features": {"ordinal": ORDINAL_COLUMNS, "numerical": NUMERIC_COLUMNS, "category": CATEGORICAL_COLUMNS},
       "hyperparameters": {
-          "tree_method": TREE_METHOD,
-          "eval_metric": EVAL_METRIC,
-          "early_stopping_rounds": EARLY_STOPPING_ROUNDS,
-          "n_estimators": N_ESTIMATORS,
-          "random_state": RANDOM_STATE,
-          "learning_rate": LEARNING_RATE,
-          "max_depth": MAX_DEPTH,
-          "min_child_weight": MIN_CHILD_WEIGHT,
-          "subsample": SUBSAMPLE,
-          "colsample_bytree": COLSAMPLE_BYTREE,
-          "reg_lambda": REG_LAMBDA,
-          "reg_alpha": REG_ALPHA,
-          "gamma": GAMMA,
-          "max_cat_to_onehot": MAX_CAT_TO_ONEHOT,
-          "max_cat_threshold": MAX_CAT_THRESHOLD,
+          **FIXED_PARAMS,
+          **hyperparams
       },
       "best_iteration": int(model.best_iteration),
       "rounds_trained": len(history),
@@ -165,11 +124,81 @@ def main():
     results["train"] = training_metrics
     results["validation"] = validation_summary(validation_metrics, validation_floor)
 
+    return results
+
+def save_outputs(results, validation_metrics, validation_floor, model):
+    # create the figures 
+    figure_directory = Path(FIGURES_PATH)
+    figure_directory.mkdir(parents=True, exist_ok=True)
+    
+    pr_curve_path = figure_directory / "mod2_pr_curve.png"
+    thresholds_path = figure_directory / "mod2_thresholds.png"
+    plot_pr_curve(validation_metrics, validation_floor, pr_curve_path, "XGBoost")
+    plot_thresholds(validation_metrics, thresholds_path)
+    
+    # save the model 
+    save_model(model_path_raw=MODEL_PATH, metrics=validation_metrics, pipeline=model)
+    
     # save the json
     save_json(METRICS_PATH, results)
 
+    return {
+        "pr_curve": pr_curve_path,
+        "thresholds": thresholds_path
+    }
+    
+
+def build_model(fixed_params, hyperparams: dict):
+    model = xgb.XGBClassifier(**fixed_params,
+                              **hyperparams)
+    return model
+
+def train_and_evaluate(hyperparams, data, tags, save):
+    training, training_y, validation, validation_y = data
+    
+    # make the model
+    model = build_model(FIXED_PARAMS, hyperparams)
+    
+    # fit the model, verbose will report every 100 rounds the rounds are based on N_ESTIMATORS
+    model.fit(training, training_y, eval_set=[(training, training_y), (validation, validation_y)], verbose=100)
+    
+    # create the history
+    history = build_history(model=model)
+    
+    # print where the model stopped and what the log loss at that round
+    best_iteration = model.best_iteration
+    best_log_loss = model.best_score
+    print(f'Best Iteration: {best_iteration}, Best Log Loss: {best_log_loss}')
+    
+    # training and validation probabilites
+    training_probabilities = model.predict_proba(training)[:, 1]
+    validation_probabilities = model.predict_proba(validation)[:, 1]
+    validation_floor = validation_y.mean()
+    
+    validation_metrics = evaluate(validation_y, validation_probabilities)
+    training_metrics = compute_loss(training_y, training_probabilities)
+    print_report(validation_metrics, validation_floor)
+    print(f'Training PR-auc-over-floor: {training_metrics["pr_auc_over_floor"]}')
+    
+    results = build_results(model=model, 
+                            training=training, 
+                            training_metrics=training_metrics,
+                            validation=validation,
+                            validation_metrics=validation_metrics,
+                            validation_floor=validation_floor,
+                            history=history,
+                            hyperparams=hyperparams)
+    
     # save to weights and biases
-    log_to_wandb(results=results, figures={"pr_curve": pr_curve_path, "thresholds": thresholds_path}, tags=[WANDB_MODEL_TAG, WANDB_FEATURE_TAG], history=history)
+    figure_paths = save_outputs(results=results, validation_metrics=validation_metrics, validation_floor=validation_floor, model=model) if save else {}
+    log_to_wandb(results=results, figures=figure_paths, tags=tags, history=history)
+
+    return validation_metrics["pr_auc"]
+    
+
+def main():
+    data = prepare_data()
+    train_and_evaluate(DEFAULT_HYPERPARAMS_DICT, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "default"], save=True)
 
 
 
