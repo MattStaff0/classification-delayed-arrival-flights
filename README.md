@@ -76,6 +76,39 @@ an error if any check fails; re-running overwrites the files. See
 - Run from the project root
 - `uv run python -m src.baseline.logistic_regression` - runs the logistic regression baseline, adds metrics to `reports/logistic_regression`
 
+## Running XGBoost (MOD-2)
+
+Run from the project root. On macOS, install `libomp` first (see Setup).
+
+```bash
+uv run python -m src.ensemble.xgboost_model             # one run with the default hyperparameters
+uv run python -m src.ensemble.xgboost_model --tune 90   # hyperopt search: 90 trials, then retrain the best
+```
+
+- **Default run:** trains once with `DEFAULT_HYPERPARAMS_DICT` (XGBoost's
+  defaults) and saves the outputs below. Takes about 15 seconds on an M-series Mac.
+- **`--tune N`:** runs `N` hyperopt (TPE) trials over 7 hyperparameters
+  (`learning_rate`, `max_depth`, `min_child_weight`, `subsample`,
+  `colsample_bytree`, `reg_lambda`, `max_cat_threshold`), picking the
+  configuration with the highest validation PR-AUC. Each trial is logged to W&B
+  as a `MOD-2` run tagged `hyperopt-trial` and writes no files. The best
+  configuration is then retrained and saved, tagged `final`. Trials average
+  under a minute (longer at low learning rates), so 90 trials take about 1–2 hours.
+- **Long runs:** keep the Mac awake and plugged in, lid open:
+  ```bash
+  caffeinate -i uv run python -m src.ensemble.xgboost_model --tune 90
+  ```
+  Python loads the code at start, so editing files during a run is safe, but
+  do not switch branches: the final step writes its outputs into whatever
+  branch is checked out when it finishes. Avoid training another model at the
+  same time; the search uses every CPU core.
+- **Outputs** (default run, or the `final` run after `--tune`; both overwrite
+  the previous files):
+  - `reports/xgboost/mod2_metrics.json`: run info, every hyperparameter used, `best_iteration`, `train` and `validation` blocks
+  - `reports/xgboost/figures/mod2_pr_curve.png`, `mod2_thresholds.png`
+  - `models/mod2_xgboost.joblib`: the fitted model and its validation threshold
+- Prefix any command with `WANDB_MODE=disabled` to run without W&B.
+
 ## Tracking runs with Weights & Biases
 
 Every model run is logged to the shared W&B project `flight-classifier` (team
