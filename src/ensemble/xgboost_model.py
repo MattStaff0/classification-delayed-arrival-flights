@@ -27,7 +27,7 @@ RANDOM_STATE = 42
 TREE_METHOD = "hist"
 EVAL_METRIC = "logloss"
 EARLY_STOPPING_ROUNDS = 50
-N_ESTIMATORS = 2000     # upper limit; early stopping picks the actual tree count
+N_ESTIMATORS = 6000    # upper limit; early stopping picks the actual tree count
 
 # hyperparameters (XGBoost 3.4 defaults for now; tuned later with hyperopt)
 LEARNING_RATE = 0.3
