@@ -3,13 +3,13 @@ name = "classification-delayed-arrival-flights"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
-    "hyperopt>=0.3.0",
+    "hyperopt==0.3.0",
     "matplotlib==3.11.2",
     "numpy==2.5.2",
     "pandas==3.0.5",
     "psutil==7.2.2",
     "pyarrow==25.0.1",
     "scikit-learn==1.9.0",
-    "wandb>=0.31.2",
+    "wandb==0.31.2",
     "xgboost==3.4.1",
 ]

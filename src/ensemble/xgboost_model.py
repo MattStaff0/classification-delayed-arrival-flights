@@ -1,9 +1,11 @@
 from datetime import date
-
+from hyperopt import fmin, tpe, hp, Trials, STATUS_OK
 import pandas as pd
+import numpy as np
 from pathlib import Path
 import xgboost as xgb
 from src.evaluation import evaluate, print_report, plot_pr_curve, plot_thresholds, save_model, validation_summary, save_json, log_to_wandb, compute_loss
+import argparse
 
 # Constants
 
@@ -194,11 +196,54 @@ def train_and_evaluate(hyperparams, data, tags, save):
     log_to_wandb(results=results, figures=figure_paths, tags=tags, history=history)
 
     return validation_metrics["pr_auc"]
+
+def to_params(trial):
+    hyperparams = {**DEFAULT_HYPERPARAMS_DICT, **trial}
+    hyperparams["max_depth"] = int(hyperparams["max_depth"])
+    hyperparams["max_cat_threshold"] = int(hyperparams["max_cat_threshold"])
+    return hyperparams
+
+def run_hyperopt(data, max_evals):
+    space = {
+        "learning_rate": hp.loguniform("learning_rate", np.log(0.02), np.log(0.3)),
+        "min_child_weight": hp.loguniform("min_child_weight", np.log(1), np.log(200)),
+        "reg_lambda": hp.loguniform("reg_lambda", np.log(.1), np.log(20)),
+        "max_depth": hp.quniform("max_depth", 3, 10, 1),
+        "max_cat_threshold": hp.quniform("max_cat_threshold", 8, 128, 8),
+        "subsample": hp.uniform("subsample", .5 , 1.0),
+        "colsample_bytree": hp.uniform("colsample_bytree", .5, 1.0)
+    }
+
+    def objective(trial):
+        hyperparams = to_params(trial)
+        pr_auc = train_and_evaluate(hyperparams=hyperparams, data=data, tags=[WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "hyperopt-trial"], save=False)
+        return {"loss": -pr_auc, "status": STATUS_OK}
+
+    trials = Trials()
+    best = fmin(
+        objective,
+        space=space,
+        algo=tpe.suggest,
+        max_evals=max_evals,
+        trials=trials,
+        rstate=np.random.default_rng(RANDOM_STATE)
+    )
+
+    final_params = to_params(best)
+    train_and_evaluate(final_params, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "final"], save=True)
+    
     
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tune", type=int, default=0)
+    args = parser.parse_args()
+
     data = prepare_data()
-    train_and_evaluate(DEFAULT_HYPERPARAMS_DICT, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "default"], save=True)
+    if args.tune > 0:
+        run_hyperopt(data, args.tune)
+    else:
+      train_and_evaluate(DEFAULT_HYPERPARAMS_DICT, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "default"], save=True)
 
 
 
