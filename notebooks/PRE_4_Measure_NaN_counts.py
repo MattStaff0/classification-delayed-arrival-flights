@@ -64,7 +64,7 @@ def count_duplicates(df):
 
 def run_checks():
     # read each month once and run every check on it
-    nulls, out_of_range, duplicates = {}, {}, None
+    nulls, out_of_range, duplicates = {}, {}, 0
 
     for file in sorted(Path("data/raw").glob("*-flight-data.csv")):
         df = get_filtered_df(file)
@@ -72,7 +72,7 @@ def run_checks():
 
         nulls[month] = count_nulls(df)
         out_of_range[month] = count_out_of_range(df)
-        duplicates = count_duplicates(df)
+        duplicates += count_duplicates(df)
 
     return pd.DataFrame(nulls), pd.DataFrame(out_of_range), duplicates
 

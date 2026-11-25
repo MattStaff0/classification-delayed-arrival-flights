@@ -82,7 +82,7 @@ Measured on all 12 months **after** the instance filter, with `notebooks/PRE_4_M
 
 ## Processed Files (PRE-7)
 
-Built by `python3 scripts/preprocess.py` (run from the project root, ~15 s). `data/` is gitignored, so rebuild the files with that command after cloning.
+Built by `uv run scripts/preprocess.py` (run from the project root, ~15 s). `data/` is gitignored, so rebuild the files with that command after cloning. With no arguments it builds the `base` dataset below; `--dataset fullyear` builds EXP-2's (see the end of this section).
 
 | File | Months | Rows | Late rate |
 | ---- | ------ | ---- | --------- |
@@ -102,9 +102,39 @@ Each file has the same 18 columns: `COLS` minus the filter-only `Cancelled` and 
 
 - **Raw values only.** No encoding or scaling is stored; each model applies its own, fit on train only (see the encoding columns above).
 - **`category` is storage, not encoding.** Its internal integer codes are alphabetical and must never be used as numeric model inputs.
-- **Unseen categories (PRE-6):** validation has none. Test has 51 origin / 48 destination rows from two airports that start service in June 2026 and never appear in train: CSG (Delta, to/from ATL) and LNS (SkyWest, to/from ORD).
+- **Category lists cover every month loaded, not just the split.** `convert_types` makes the `category` columns before splitting, so each split's list includes values that occur only in other splits. Train's `Origin` and `Dest` list CSG and LNS with 0 rows. Consequence: `encode()` (XGBoost) gives validation and test train's list, so test's CSG/LNS rows keep a valid `Origin`/`Dest` code (for a category with no training rows) instead of becoming missing. `OriginCityMarketID` / `DestCityMarketID` are stored as `int64` and only become categories in `encode()`, from train's values, so there test's unseen city markets do become missing. Checked in EXP-2 (`docs/findings.md`).
+- **Unseen categories (PRE-6):** validation has none. Test has 51 origin / 48 destination rows from two airports with no flights in train (Jul 2025 – Mar 2026) that start service in June 2026: CSG (Delta, to/from ATL) and LNS (SkyWest, to/from ORD). CSG is a return, not new: it had 476 flights in Jul–Dec 2024 (469 by `9E`), which are in EXP-2's full-year train. LNS has no flights since Jul 2024.
 - **Validation is less late than test** (0.202 vs 0.236). The threshold is chosen on validation, so it may under-flag delays on test; a limitation to state in the report.
-- **Re-running overwrites the files.** The checks run before writing, so a failed run leaves the old files in place. Output is deterministic for the same raw data and split dates. Write EXP-2's extended-data output to a separate folder if both versions are needed.
+- **Re-running overwrites the files of that dataset only.** The checks run before writing, so a failed run leaves the old files in place. Output is deterministic for the same raw data and split dates. Each dataset writes to its own folder, so building `fullyear` never touches `data/processed`.
+
+### Full-year dataset (EXP-2)
+
+Built by `uv run scripts/preprocess.py --dataset fullyear`. Reads the 12 months in `data/raw` plus Jul 2024 – Jun 2025 from `data/raw_2024` (downloaded with `uv run scripts/fetch_bts_data.py --start 2024-07 --end 2025-06 --out data/raw_2024`; checked with `notebooks/EXP_2_Check_new_months.py`). Same filter, cleaning rule, columns, types, and split dates as `base`; only train starts earlier. Used only by EXP-2: MOD-1/2/3 and EXP-4 stay on `data/processed`.
+
+| File | Months | Rows | Late rate |
+| ---- | ------ | ---- | --------- |
+| `data/processed_fullyear/train.parquet` | 2024-07 – 2026-03 | 12,053,138 | 0.215 |
+| `data/processed_fullyear/val.parquet` | 2026-04 | 591,206 | 0.202 |
+| `data/processed_fullyear/test.parquet` | 2026-05 – 2026-06 | 1,199,540 | 0.236 |
+
+- **Validation and test are the same rows and values as `data/processed`** (compared column by column). Train's rows from Jul 2025 on are identical to `data/processed/train.parquet`.
+- **Only the category lists differ:** `Reporting_Airline`, `Origin`, and `Dest` list 4 more values (`9E`, ALW, ITH, VLD) because the 2024 months were loaded, so `DataFrame.equals` against `data/processed` is False. Scoring is unaffected (`encode()` uses train's list).
+- **Values in train that `base` train has no rows for:** airline `9E` (97,482 rows, Jul–Dec 2024 only, absent from validation and test) and airports ALW, CSG, ITH, VLD (1,438 origin rows). Kept: dropping them would add a filter `base` does not have. `base` train already has the same situation with `HA` (Jul–Dec 2025 only).
+- New months: 0 nulls, 0 out-of-range rows, 0 duplicates after the instance filter; the existing cleaning rule removes nothing from them.
+
+### Apr–Jun 2025 dataset (EXP-2 run B)
+
+Built by `uv run scripts/preprocess.py --dataset aprjun2025`. Reads the 12 months in `data/raw` plus only `2025-0[4-6]-flight-data.csv` from `data/raw_2024` (15 files). Used only by EXP-2 run B (and a possible EXP-3, since its train has every month value).
+
+| File | Months | Rows | Late rate |
+| ---- | ------ | ---- | --------- |
+| `data/processed_aprjun2025/train.parquet` | 2025-04 – 2026-03 | 6,880,310 | 0.228 |
+| `data/processed_aprjun2025/val.parquet` | 2026-04 | 591,206 | 0.202 |
+| `data/processed_aprjun2025/test.parquet` | 2026-05 – 2026-06 | 1,199,540 | 0.236 |
+
+- Validation and test are identical to `data/processed`, category lists included (`DataFrame.equals` True): Apr–Jun 2025 adds no airline or airport that `base` lacks.
+
+**EXP-2 outcome:** neither extended dataset was adopted (`docs/findings.md`, EXP-2), so `data/processed` stays the project's dataset (PRE-8).
 
 ## Dropped Columns
 

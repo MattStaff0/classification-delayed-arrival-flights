@@ -1,11 +1,36 @@
 import pandas as pd
 from pathlib import Path
 from utils import COLS
+import argparse
 
-# dataset path contstants
-PARENT_PATH = "data/raw"
+# file name pattern of every monthly csv (YYYY-MM-flight-data.csv)
 DATASET_PATH = "*-flight-data.csv"
-PROCESSED_PATH = "data/processed"
+
+  # "base" is the project's dataset (MOD-1/2/3, EXP-4), the others are EXP-2 only. The output folder is tied to the dataset so a new dataset can never
+  # overwrite data/processed
+DATASETS = {
+      "base": {
+          "raw": [("data/raw", DATASET_PATH)],
+          "out": "data/processed",
+          "files": 12,
+          "train_rows": 5_105_534,
+      },
+      "fullyear": {
+          "raw": [("data/raw", DATASET_PATH), ("data/raw_2024", DATASET_PATH)],
+          "out": "data/processed_fullyear",
+          "files": 24,
+          "train_rows": 12_053_138,
+      },
+      # EXP-2 run B: base + only Apr-Jun 2025, so train covers the validation/test months with about a third of fullyear's added rows
+      # 5,105,534 base train + 1,774,776 Apr-Jun 2025 rows (notebooks/EXP_2_Check_new_months.py)
+      "aprjun2025": {
+          "raw": [("data/raw", DATASET_PATH), ("data/raw_2024", "2025-0[4-6]-flight-data.csv")],
+          "out": "data/processed_aprjun2025",
+          "files": 15,
+          "train_rows": 6_880_310,
+      },
+      # we can add more here if we want only seasonal split or any other data split for this here
+    }
 
 # training / validation / testing split blocks
 VALIDATION_START = "2026-04-01"
@@ -19,7 +44,7 @@ EXPECTED_COLS = ["FlightDate","Month","DayofMonth","DayOfWeek","Reporting_Airlin
         "Distance","DepTimeBlk","ArrTimeBlk","OriginState","DestState",
         "OriginCityMarketID","DestCityMarketID","ArrDel15"]
 
-EXPECTED_ROWS = {"train": 5_105_534, "val": 591_206, "test": 1_199_540}
+EXPECTED_ROWS = {"val": 591_206, "test": 1_199_540}
 
 UNSEEN_CHECK_COLS = ["Origin", "Dest", "Reporting_Airline", "OriginState", "DestState",
                      "OriginCityMarketID", "DestCityMarketID"]
@@ -27,13 +52,17 @@ UNSEEN_CHECK_COLS = ["Origin", "Dest", "Reporting_Airline", "OriginState", "Dest
 def load_dataset_as_df(path) -> pd.DataFrame:
     return pd.read_csv(path, usecols=COLS, engine="pyarrow")
 
-def check_if_all_files_exist():
-    files = [file for file in sorted(Path(PARENT_PATH).glob(DATASET_PATH))]
+def find_files(dataset):
+    files = [file for folder, pattern in dataset["raw"] for file in Path(folder).glob(pattern)]
 
-    # currently have 12 months of data will need to change this if we get more data
-    assert len(files) == 12, f"Expected 12 monthly files, found {len(files)}"
+    files = sorted(files, key=lambda file: file.name)
 
-    return True
+    names = [file.name for file in files]
+    assert len(names) == len(set(names)), f"Same month in more than one folder. {sorted({n for n in names if names.count(n) > 1})}"
+
+    assert len(files) == dataset["files"], f"Expected {dataset["files"]} monthly files, found {len(files)}"
+
+    return files
 
 def apply_instance_filter(df):
     return df.loc[(df["ArrDel15"].notna()) & (df["Cancelled"] == 0) & (df["Diverted"] == 0)]
@@ -42,8 +71,7 @@ def drop_bad_elapsed_time(df):
     # gets rid of the three bad rows
     return df.loc[df["CRSElapsedTime"] > 0]
 
-def concatenate_data():
-    files = [file for file in sorted(Path(PARENT_PATH).glob(DATASET_PATH))]
+def concatenate_data(files):
     dfs = []
     for file in files: 
         # get the dataframe
@@ -84,7 +112,7 @@ def sort_by_flight_date(df):
 def get_splits(df):
     # returns a tuple of our three splits
 
-    # get the training split this is from 2025-07 -> 2026-03
+    # training split is everything before validation: 2025-07 -> 2026-03 for base, 2024-07 -> 2026-03 for fullyear
     training_split = df.loc[df["FlightDate"] < VALIDATION_START]
     validation_split = df.loc[(df["FlightDate"] >= VALIDATION_START) & (df["FlightDate"] < TESTING_START)]
     testing_split = df.loc[df["FlightDate"] >= TESTING_START]
@@ -96,16 +124,19 @@ def get_splits(df):
 
     return training_split, validation_split, testing_split
 
-def write_parquet_splits(train_df, valid_df, test_df):
+def write_parquet_splits(train_df, valid_df, test_df, out):
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+
     # write out the three files as parquet
     # no try/except: if a write fails, the error should stop the script
-    train_df.to_parquet(Path(PROCESSED_PATH) / "train.parquet", engine="pyarrow", index=False)
-    valid_df.to_parquet(Path(PROCESSED_PATH) / "val.parquet", engine="pyarrow", index=False)
-    test_df.to_parquet(Path(PROCESSED_PATH) / "test.parquet", engine="pyarrow", index=False)
-    print(f"Successfully wrote files to {PROCESSED_PATH}! Great work :)")
+    train_df.to_parquet(Path(out) / "train.parquet", engine="pyarrow", index=False)
+    valid_df.to_parquet(Path(out) / "val.parquet", engine="pyarrow", index=False)
+    test_df.to_parquet(Path(out) / "test.parquet", engine="pyarrow", index=False)
+    print(f"Successfully wrote files to {out}! Great work :)")
 
 # check splits against what we expect
-def check_splits(train, val, test):
+def check_splits(train, val, test, expected_train_rows):
     # no nulls in any split
     assert train.notna().all().all(), f"There is a null in the training data, {train.isna().sum().to_string()}"
     assert val.notna().all().all(), f"There is a null in the validation data, {val.isna().sum().to_string()}"
@@ -122,7 +153,7 @@ def check_splits(train, val, test):
     assert test["ArrDel15"].isin([0, 1]).all(), f"Arrdel15 is not all 0 or 1 - test"
 
     # make sure our counts match what we expect
-    assert len(train) == EXPECTED_ROWS.get("train"), f"Training data does not match expected size"
+    assert len(train) == expected_train_rows, f"Training data does not match expected size, train: {len(train):,} vs expected: {expected_train_rows:,}"
     assert len(val) == EXPECTED_ROWS.get("val"), f"Validation data does not match expected size"
     assert len(test) == EXPECTED_ROWS.get("test"), f"Test data does not match expected size"
 
@@ -152,27 +183,33 @@ def print_report(train, val, test):
         print(f"{col:<20} {unseen_val:>8,} {unseen_test:>8,}")
     print()
 
-def check_written_files(train, val, test):
+def check_written_files(train, val, test, out):
     # read each file back and confirm it matches what was written
     for name, split in [("train", train), ("val", val), ("test", test)]:
-        written = pd.read_parquet(Path(PROCESSED_PATH) / f"{name}.parquet")
+        written = pd.read_parquet(Path(out) / f"{name}.parquet")
         assert len(written) == len(split), f"{name}.parquet has {len(written):,} rows, expected {len(split):,}"
         assert written.dtypes.equals(split.dtypes), f"{name}.parquet dtypes changed:\n{written.dtypes.to_string()}"
     print("Read-back check passed: row counts and dtypes match.")
 
 def main():
-    # check if all the files exist before we run anything
-    check_if_all_files_exist()
+    # adding the argparse so we can take in different months for EXP:2
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset", choices=sorted(DATASETS), default="base", help="which raw months to read and where to write the splits (default: base -> data/processed)")
+    args = parser.parse_args()
+    dataset = DATASETS[args.dataset]
 
-    df = concatenate_data()
+    files = find_files(dataset)
+    print(f'Dataset {args.dataset}: {len(files)} files, {files[0].name} .. {files[-1].name} -> {dataset['out']}')
+
+    df = concatenate_data(files=files)
     df = convert_types(df)
     df = sort_by_flight_date(df)
     train, val, test = get_splits(df)
 
-    check_splits(train, val, test)
+    check_splits(train, val, test, dataset["train_rows"])
     print_report(train, val, test)
-    write_parquet_splits(train, val, test)
-    check_written_files(train, val, test)
+    write_parquet_splits(train, val, test, dataset['out'])
+    check_written_files(train, val, test, dataset['out'])
 
 
 if __name__ == "__main__":

@@ -19,16 +19,25 @@ FEATURES = ORDINAL_COLUMNS + CATEGORICAL_COLUMNS + NUMERIC_COLUMNS
 TARGET = "ArrDel15"
 
 MODEL_PATH = "models/mod2_xgboost.joblib"
-PREPROCESS_PATH = "data/processed"
 FIGURES_PATH = "reports/xgboost/figures"
 METRICS_PATH = "reports/xgboost/mod2_metrics.json"
-WANDB_MODEL_TAG = "xgboost"
 WANDB_FEATURE_TAG = "13-baseline-features"
+WANDB_MODEL_TAG = 'xgboost'
 
-# run name, feature tag, and output files for each kind of run, so an EXP-4 run never overwrites MOD-2's files
+# names here must match preprocess.py's datasets
+DATA_FOLDERS = {"base": "data/processed", "fullyear": "data/processed_fullyear", "aprjun2025": "data/processed_aprjun2025"}
+
+# late_rate, dataset, run name, feature tag, data tag, and output files for each kind of run, so a run never overwrites another runs files
 RUNS = {
-    "MOD-2": {"feature_tag": WANDB_FEATURE_TAG, "metrics": METRICS_PATH, "model": MODEL_PATH, "prefix": "mod2"},
-    "EXP-4-xgboost": {"feature_tag": "13-plus-late-rate", "metrics": "reports/xgboost/exp4_metrics.json", "model": "models/exp4_xgboost.joblib", "prefix": "exp4"},
+    "MOD-2": {"late_rate": False, "dataset": "base", "feature_tag": WANDB_FEATURE_TAG, "data_tag": None,
+            "metrics": METRICS_PATH, "model": MODEL_PATH, "prefix": "mod2"},
+    "EXP-4-xgboost": {"late_rate": True, "dataset": "base", "feature_tag": "13-plus-late-rate", "data_tag": None,
+            "metrics": "reports/xgboost/exp4_metrics.json", "model": "models/exp4_xgboost.joblib", "prefix": "exp4"},
+    "EXP-2": {"late_rate": False, "dataset": "fullyear", "feature_tag": WANDB_FEATURE_TAG, "data_tag": "21-training-months",
+            "metrics": "reports/xgboost/exp2_metrics.json", "model": "models/exp2_xgboost.joblib", "prefix": "exp2"},
+    # EXP-2 run B: base train + Apr-Jun 2025 only (Apr 2025 - Mar 2026)
+    "EXP-2-aprjun": {"late_rate": False, "dataset": "aprjun2025", "feature_tag": WANDB_FEATURE_TAG, "data_tag": "12-training-months",
+            "metrics": "reports/xgboost/exp2_aprjun_metrics.json", "model": "models/exp2_aprjun_xgboost.joblib", "prefix": "exp2_aprjun"},
 }
 
 # training setup
@@ -71,9 +80,9 @@ DEFAULT_HYPERPARAMS_DICT = {"learning_rate":LEARNING_RATE,
                 "max_cat_threshold":MAX_CAT_THRESHOLD}
 
 
-def load_splits():
-    training_split = pd.read_parquet(Path(PREPROCESS_PATH) / "train.parquet")
-    validation_split = pd.read_parquet(Path(PREPROCESS_PATH) / "val.parquet")
+def load_splits(folder):
+    training_split = pd.read_parquet(Path(folder) / "train.parquet")
+    validation_split = pd.read_parquet(Path(folder) / "val.parquet")
     return training_split, validation_split
 
 def split_target_from_data(training, validation):
@@ -95,9 +104,9 @@ def encode(train, val, features):
 
     return train, val
 
-def prepare_data(late_rate=False): 
+def prepare_data(late_rate=False, dataset="base"): 
     # load the splits
-    training, validation = load_splits()
+    training, validation = load_splits(DATA_FOLDERS[dataset])
 
     # split the target off the datasets
     training, training_y, validation, validation_y = split_target_from_data(training=training, validation=validation)
@@ -114,9 +123,13 @@ def prepare_data(late_rate=False):
 
     return training, training_y, validation, validation_y
 
-def run_name(training):
-    # the data decides which run this is: the late_rate column only exists for EXP-4
-    return "EXP-4-xgboost" if "late_rate" in training.columns else "MOD-2"
+def run_name(late_rate, dataset):
+    # flags decide what run this is, not the data
+    for name, run in RUNS.items():
+        if run["late_rate"] == late_rate and run["dataset"] == dataset:
+            return name
+    # if we ran the late rate with the full year of data, not configured yet
+    return None
 
 def build_history(model):
     # weights and bias history
@@ -127,11 +140,11 @@ def build_history(model):
     history = [{"train_logloss": training_loss, "val_logloss": validation_loss} for training_loss, validation_loss in zip(training_history, validation_history)]
     return history
 
-def build_results(model, training, training_metrics, validation, validation_metrics, validation_floor, history, train_seconds, hyperparams, params_source=None):
+def build_results(model, run, training, training_metrics, validation, validation_metrics, validation_floor, history, train_seconds, hyperparams, params_source=None):
     # record what the model actually trained on, read from the data itself
     numeric_cols = NUMERIC_COLUMNS + ["late_rate"] if "late_rate" in training.columns else NUMERIC_COLUMNS
     results = {
-      "run": run_name(training),
+      "run": run,
       "date": date.today().isoformat(),
       "xgb_version": xgb.__version__,
       "train_rows": len(training),
@@ -149,6 +162,11 @@ def build_results(model, training, training_metrics, validation, validation_metr
     # only for --params runs: which file the settings came from and what --set changed
     if params_source is not None:
         results["params_source"] = params_source
+
+    # only for runs not on the base data (EXP-2), which dataset folder train came from, so other metric files stay as they are
+    dataset = RUNS[run]["dataset"]
+    if dataset != "base":
+        results["dataset"] = {"name": dataset, "folder": DATA_FOLDERS[dataset]}
 
     results["train"] = training_metrics
     results["validation"] = validation_summary(validation_metrics, validation_floor)
@@ -185,7 +203,7 @@ def build_model(fixed_params, hyperparams: dict):
                               **hyperparams)
     return model
 
-def train_and_evaluate(hyperparams, data, tags, save, params_source=None):
+def train_and_evaluate(hyperparams, data, run, tags, save, params_source=None):
     training, training_y, validation, validation_y = data
     
     # make the model
@@ -219,6 +237,7 @@ def train_and_evaluate(hyperparams, data, tags, save, params_source=None):
     print(f'Training PR-auc-over-floor: {training_metrics["pr_auc_over_floor"]}')
     
     results = build_results(model=model, 
+                            run=run,
                             training=training, 
                             training_metrics=training_metrics,
                             validation=validation,
@@ -258,7 +277,7 @@ def to_params(trial):
     hyperparams["max_cat_threshold"] = int(hyperparams["max_cat_threshold"])
     return hyperparams
 
-def run_hyperopt(data, max_evals):
+def run_hyperopt(data, max_evals, run):
     space = {
         "learning_rate": hp.loguniform("learning_rate", np.log(0.02), np.log(0.3)),
         "min_child_weight": hp.loguniform("min_child_weight", np.log(1), np.log(200)),
@@ -271,7 +290,7 @@ def run_hyperopt(data, max_evals):
 
     def objective(trial):
         hyperparams = to_params(trial)
-        pr_auc = train_and_evaluate(hyperparams=hyperparams, data=data, tags=[WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "hyperopt-trial"], save=False)
+        pr_auc = train_and_evaluate(hyperparams=hyperparams, data=data, run=run, tags=[WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "hyperopt-trial"], save=False)
         return {"loss": -pr_auc, "status": STATUS_OK}
 
     trials = Trials()
@@ -285,7 +304,7 @@ def run_hyperopt(data, max_evals):
     )
 
     final_params = to_params(best)
-    train_and_evaluate(final_params, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "final"], save=True)
+    train_and_evaluate(final_params, data, run, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "final"], save=True)
     
     
 
@@ -296,6 +315,7 @@ def main():
     mode.add_argument("--params", type=Path, default=None, help="train and save once with the hyperparameters in this JSON file")
     parser.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE", help="override one hyperparameter from --params for this run (repeatable)")
     parser.add_argument("--late-rate", action="store_true", default=False, help="EXP-4: add the historical late-rate feature (requires --params so the tuned settings stay fixed)")
+    parser.add_argument("--dataset", choices=sorted(DATA_FOLDERS), default="base", help="EXP-2: which processed folder to train on (default: base -> data/processed; anything else requires --params)")
     args = parser.parse_args()
 
     if args.overrides and args.params is None:
@@ -305,16 +325,28 @@ def main():
     if args.late_rate and args.params is None:
         parser.error("--late-rate requires --params")
 
-    data = prepare_data(late_rate=args.late_rate)
+    # EXP-2 changes only the training data
+    if args.dataset != "base" and args.params is None:
+        parser.error("--dataset other than base requires --params")
+
+    # flags pick what run we are doing
+    run = run_name(args.late_rate, args.dataset)
+
+    if run is None:
+        parser.error(f'No run defined for --late-rate:{args.late_rate} with --dataset {args.dataset}: add a row to RUNS and try again.')
+
+    data = prepare_data(late_rate=args.late_rate, dataset=args.dataset)
     if args.tune > 0:
-        run_hyperopt(data, args.tune)
+        run_hyperopt(data, args.tune, run)
     elif args.params is not None:
         params = load_params(args.params, args.overrides)
         params_source = {"file": str(args.params), "overrides": args.overrides}
-        feature_tag = RUNS[run_name(data[0])]["feature_tag"]
-        train_and_evaluate(params, data, [WANDB_MODEL_TAG, feature_tag, "final"], save=True, params_source=params_source)
+
+        data_tag = RUNS[run]['data_tag']
+        tags = [WANDB_MODEL_TAG, RUNS[run]["feature_tag"]] + ([data_tag] if data_tag else []) + ["final"]
+        train_and_evaluate(params, data, run, tags, save=True, params_source=params_source)
     else:
-      train_and_evaluate(DEFAULT_HYPERPARAMS_DICT, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "default"], save=True)
+      train_and_evaluate(DEFAULT_HYPERPARAMS_DICT, data, run, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "default"], save=True)
 
 
 

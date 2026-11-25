@@ -55,13 +55,33 @@ skipped. Use `--start YYYY-MM --end YYYY-MM` for a different range (e.g.
 ## Build the processed data
 
 ```bash
-uv run scripts/preprocess.py
+uv run scripts/preprocess.py                      # base: data/raw -> data/processed
+uv run scripts/preprocess.py --dataset fullyear   # EXP-2: data/raw + data/raw_2024 -> data/processed_fullyear
+uv run scripts/preprocess.py --dataset aprjun2025 # EXP-2 run B: data/raw + Apr-Jun 2025 -> data/processed_aprjun2025
 ```
 
 Run from the project root. Filters to completed flights, drops the 3 bad rows,
-splits by date, and writes `data/processed/{train,val,test}.parquet`. Stops with
-an error if any check fails; re-running overwrites the files. See
+splits by date, and writes `{train,val,test}.parquet`. Stops with an error if
+any check fails; re-running overwrites that dataset's files only. See
 `docs/architecture/data-dictionary.md` (Processed Files) for the contents.
+
+- **`--dataset`** picks a row of the `DATASETS` table at the top of
+  `scripts/preprocess.py`: which raw files to read (folder + file pattern), where
+  to write, and the file count and train row count the run must find. The
+  default, `base`, is the project's dataset (MOD-1/2/3, EXP-4) and reproduces
+  `data/processed` exactly.
+- **`fullyear`** (EXP-2) adds Jul 2024 – Jun 2025 to train: 24 files, 12,053,138
+  train rows. Download the extra months first:
+  `uv run scripts/fetch_bts_data.py --start 2024-07 --end 2025-06 --out data/raw_2024`,
+  then check them with `uv run python notebooks/EXP_2_Check_new_months.py`
+  (read-only).
+- **`aprjun2025`** (EXP-2 run B) adds only Apr–Jun 2025 from `data/raw_2024`
+  (file pattern `2025-0[4-6]-flight-data.csv`): 15 files, 6,880,310 train rows.
+- **Every dataset asserts the same validation and test sizes** (591,206 /
+  1,199,540), so a dataset that changed them fails before writing anything. Each
+  dataset has its own output folder, so a new one can never overwrite
+  `data/processed`. To add a dataset (e.g. only Apr–Jun 2025 for EXP-2's
+  follow-up), add a row with a file pattern such as `2025-0[4-6]-flight-data.csv`.
 
 ## Scripts
 
@@ -169,6 +189,42 @@ uv run python -m src.ensemble.xgboost_model --params reports/xgboost/mod2_metric
   the model and `13-plus-late-rate` (XGBoost also `final`). Each takes under a
   minute.
 
+## Running EXP-2 (more training data, `--dataset`)
+
+Run from the project root, after building the dataset's splits (see
+[Build the processed data](#build-the-processed-data)). Trains XGBoost with
+MOD-2's tuned settings on a longer training window; validation and test are the
+same rows. Results: `docs/findings.md` (EXP-2). Verdict: not adopted, MOD-2 on
+`data/processed` stays the tree model.
+
+```bash
+uv run python -m src.ensemble.xgboost_model --params reports/xgboost/mod2_metrics.json --dataset fullyear     # Jul 2024 - Mar 2026
+uv run python -m src.ensemble.xgboost_model --params reports/xgboost/mod2_metrics.json --dataset aprjun2025   # Apr 2025 - Mar 2026 (run B)
+```
+
+- **`--dataset`** picks the processed folder (`DATA_FOLDERS` in
+  `xgboost_model.py`, same names as `DATASETS` in `preprocess.py`). Default
+  `base` = `data/processed`, so commands without it behave exactly as before
+  (checked: `--params` reproduces MOD-2 exactly).
+- **Requires `--params`:** the experiment keeps MOD-2's tuned settings fixed, so
+  a non-base `--dataset` alone or with `--tune` is an error.
+- **The flags pick the run.** Each row of `RUNS` in `xgboost_model.py` says
+  which `--late-rate` / `--dataset` combination selects it, plus its tags and
+  output files. A combination without a row (e.g. `--late-rate --dataset
+  fullyear`) stops with an error before loading data; add a row to run it.
+- **Outputs** (never the `mod2_*` / `exp4_*` files):
+  - `fullyear`: `reports/xgboost/exp2_metrics.json`, `figures/exp2_pr_curve.png`, `figures/exp2_thresholds.png`, `models/exp2_xgboost.joblib`
+  - `aprjun2025`: `reports/xgboost/exp2_aprjun_metrics.json`, `figures/exp2_aprjun_*.png`, `models/exp2_aprjun_xgboost.joblib`
+  - Non-base runs add a `dataset` block (name and folder) to the metrics JSON
+    and W&B config.
+- **W&B:** runs `EXP-2` (tags `xgboost`, `13-baseline-features`,
+  `21-training-months`, `final`) and `EXP-2-aprjun` (`12-training-months`
+  instead). The `--set max_depth=6` / `7` runs on `fullyear` are tagged
+  `depth-check` instead of `final`. The full-year run takes about 2–3 minutes.
+- Adding `--set` to a `--dataset` run overwrites that dataset's `exp2*` files:
+  commit them first, then `git restore reports/` afterwards (as for MOD-3's
+  boundary check).
+
 ## Running a saved configuration (`--params`, `--set`)
 
 Both tree models (`xgboost_model`, `lightgbm_model`) can train and save once
@@ -262,7 +318,9 @@ log_to_wandb(results=results,
 - **Tags** are the model and the feature set, in kebab-case, spelled the same
   in every script (e.g. `logistic-regression`, `xgboost`, `lightgbm`,
   `13-baseline-features`, `13-plus-late-rate`), plus the run type: `default`,
-  `hyperopt-trial`, `final`, or `boundary-check`. A `final` run that was
+  `hyperopt-trial`, `final`, `boundary-check`, or `depth-check`. Runs on a
+  training window other than Jul 2025 – Mar 2026 also get a data tag counting
+  the training months (`21-training-months`, `12-training-months`). A `final` run that was
   replaced keeps its tags and gets `superseded` added (never delete it: its
   metrics JSON is in git history), so filter by `final` and exclude
   `superseded` to see the current final models.
