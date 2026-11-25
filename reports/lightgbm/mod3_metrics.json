@@ -25,7 +25,7 @@
       "Reporting_Airline"
     ]
   },
-  "train_seconds": 71.8,
+  "train_seconds": 124.9,
   "hyperparameters": {
     "objective": "binary",
     "verbose": -1,
@@ -33,7 +33,7 @@
     "n_estimators": 6000,
     "random_state": 42,
     "learning_rate": 0.03730354332157487,
-    "num_leaves": 15,
+    "num_leaves": 7,
     "max_depth": -1,
     "min_child_samples": 692,
     "subsample": 0.7747352123113382,
@@ -45,29 +45,35 @@
     "max_cat_threshold": 88,
     "cat_smooth": 10
   },
-  "best_iteration": 947,
-  "rounds_trained": 998,
+  "best_iteration": 2493,
+  "rounds_trained": 2544,
+  "params_source": {
+    "file": "reports/lightgbm/mod3_metrics.json",
+    "overrides": [
+      "num_leaves=7"
+    ]
+  },
   "train": {
-    "log_loss": 0.48768724914262657,
-    "pr_auc": 0.4058839881346253,
+    "log_loss": 0.48962528468105626,
+    "pr_auc": 0.3978022228095528,
     "floor": 0.22408645207337763,
-    "pr_auc_over_floor": 1.8112830310764063
+    "pr_auc_over_floor": 1.7752176409098197
   },
   "validation": {
-    "pr_auc": 0.329163587341205,
-    "log_loss": 0.47386376250074386,
+    "pr_auc": 0.3308261253261554,
+    "log_loss": 0.4734022383120562,
     "floor": 0.2019888160810276,
     "f1_floor": 0.33609100746809484,
-    "pr_auc_over_floor": 1.6296129346545671,
-    "threshold": 0.22781136042498876,
-    "precision": 0.29561133183755717,
-    "recall": 0.6498488489913496,
-    "f1": 0.4063686396078904,
+    "pr_auc_over_floor": 1.637843776426933,
+    "threshold": 0.2279786389156987,
+    "precision": 0.2965514354112511,
+    "recall": 0.6524866643777687,
+    "f1": 0.4077725793114998,
     "confusion_matrix": {
-      "tp": 77603,
-      "fp": 184914,
-      "fn": 41814,
-      "tn": 286875
+      "tp": 77918,
+      "fp": 184829,
+      "fn": 41499,
+      "tn": 286960
     }
   }
 }
