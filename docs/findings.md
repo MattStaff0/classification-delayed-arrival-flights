@@ -20,8 +20,11 @@ scored yet (EVAL-4).
 | **MOD-2 XGBoost, tuned** | **0.332** | **1.64** | **0.407** | 8.3% |
 | MOD-3 LightGBM, default settings | 0.319 | 1.58 | 0.402 | 13.6% |
 | MOD-3 LightGBM, tuned (7 leaves) | 0.331 | 1.64 | 0.408 | 8.4% |
+| EXP-4 logistic regression + late rate | 0.318 | 1.57 | 0.396 | 0.8% |
+| EXP-4 XGBoost, tuned + late rate | 0.332 | 1.64 | 0.407 | 7.5% |
 
 Sources: `reports/logistic_regression/mod1_metrics.json`,
+`reports/logistic_regression/exp4_metrics.json`, `reports/xgboost/exp4_metrics.json` (EXP-4),
 `git show 5363871:reports/xgboost/mod2_metrics.json` (default run),
 `reports/xgboost/mod2_metrics.json` (tuned),
 `git show 16fd05d:reports/lightgbm/mod3_metrics.json` (MOD-3 default run),
@@ -543,5 +546,164 @@ and **EXP-2** (full-year training data, on the best tree model with its tuned
 settings fixed). EXP-7, EXP-8, and EXP-9 (the single-run XGBoost follow-ups) are
 deferred to the Future work section of `OPEN-ISSUES.md`.
 
-- **EXP-4** (historical late-rate feature): ⟨not run yet⟩
+- **EXP-4** (historical late-rate feature): small gain for logistic regression,
+  none for XGBoost. Not adopted. See below.
 - **EXP-2** (full-year training data): ⟨not run yet⟩
+
+### EXP-4: historical late rate (`Origin` + `DepTimeBlk`)
+
+**Question:** does adding one derived feature, the historical share of late
+flights for the flight's origin airport and departure time block, to the 13 base
+features improve validation PR-AUC and F1, for logistic regression (MOD-1) and
+for XGBoost with MOD-2's tuned settings fixed? Only the feature changes.
+
+#### Setup
+
+**What stays fixed.** Same splits and rows (5,105,534 train, 591,206
+validation), same encoding of the 13 base columns, same settings (LR: `C` 1.0,
+`tol`, `max_iter`; XGBoost: `--params reports/xgboost/mod2_metrics.json`, no
+overrides, recorded as `params_source`), same early-stopping rule (validation
+log loss, patience 50), and the same threshold rule (max F1 on validation).
+Early stopping may keep a different number of trees: the rule is fixed, the tree
+count is not. Re-tuning with the new feature would change two things at once, so
+the code rejects `--late-rate` without `--params`. Baselines are the committed
+MOD-1 and MOD-2 JSONs; re-running both with the flag off reproduced them exactly
+(PR-AUC, F1, threshold, log loss, train PR-AUC, features), so the code changes
+did not alter them.
+
+**The feature.** For key *k* = (`Origin`, `DepTimeBlk`):
+
+  late_rate(*k*) = (late flights in *k* + α · *p*) / (flights in *k* + α), α = 20
+
+where *p* is the overall late rate of the rows the counts came from. Train has
+4,460 keys (356 origins × 19 blocks, of the 6,764 possible). Code:
+`src/features/late_rate.py`, shared by both models.
+
+**Why a naive rate leaks.** If each training row's rate is computed from all of
+train, the row's own label is part of its own feature. A key with 1 flight gets
+exactly its label; a key with 3 flights gets a value that is a third that
+label. Train has 125 keys with 1 flight and 284 with ≤ 5 (72% of those have a
+rate of exactly 0 or 1). Validation rows look up honest past rates, so the model
+learns to trust the feature more on train than it should on validation.
+
+**Why leave-one-out still leaks.** Leaving out only the row itself gives
+(key's late count − own label) / (flights − 1). Everything but the own label is
+shared by the key, so late flights always get a slightly *lower* value than
+on-time flights in the same key: the label is encoded backwards. In all 4,225
+train keys with both outcomes, the late flights got the lower value 100% of the
+time (by 0.15 on average in keys of 2–30 flights, 0.006 in larger keys). The
+model also sees `Origin` and `DepTimeBlk`, so it can read the label from that.
+
+**Out-of-fold (K = 5).** Train is split into 5 random folds (`KFold`,
+`shuffle=True`, `random_state=42`). Each fold's rows get rates computed from the
+other 4 folds only, including *p*. All rows in the same fold and key get the same
+value whatever their own labels. The seed is fixed in the shared module, so both
+models get identical values. **Validation (and later test) rows** get rates from
+all of train: their labels never enter the table, so there is nothing to leak.
+
+**More folds is not better.** Smaller folds bring back the leave-one-out
+reversal. Within-key correlation between label and feature (0 = no leak):
+
+| Folds | 5 | 10 | 50 | 500 | leave-one-out |
+|---|---|---|---|---|---|
+| corr(label, rate) within key | −0.055 | −0.081 | −0.172 | −0.311 | −0.358 |
+
+K = 5 cuts it to about a sixth of leave-one-out, not to zero (see Caveats).
+
+**Small and unseen keys: smoothing.** α adds 20 pretend flights at rate *p* to
+every key: a key with few flights is pulled toward *p*, a large key keeps its own
+rate (2 flights, both late: 1.000 → 0.295; 5,000 flights, 1,500 late: 0.300 →
+0.2997). A key with no flights gets exactly *p*, so keys unseen in train (38
+validation keys, 383 rows) and keys that land entirely in one fold need no
+special case and never give 0/0. α was fixed before any run, from train only:
+one flight's variance *p*(1 − *p*) ≈ 0.174 divided by the between-key variance of
+true rates (standard deviation ≈ 0.089, after removing sampling noise) gives
+α ≈ 22, rounded to 20. Tuning α on validation would add a second choice made on
+validation. It barely matters: only 0.075% of train rows are in keys with fewer
+than 20 flights (under 1% even at α = 100).
+
+**Smoothing does not replace out-of-fold.** Smoothing the naive rate still
+leaks: a 1-flight key gets 0.261 if late and 0.213 if on time. Out-of-fold fixes
+leakage; smoothing fixes noise in small keys; EXP-4 uses both.
+
+**Effect on the feature alone.** Used as a score by itself, the naive rate gives
+`pr_auc_over_floor` 1.465 train / 1.437 validation; the out-of-fold, smoothed
+rate gives 1.451 / 1.442: less inflated on train, slightly better on validation.
+
+**Encoding.** XGBoost: a numeric column (trees split on thresholds, so scale does
+not matter). Logistic regression: added to `SCALED_COLUMNS` (`StandardScaler`
+fitted on train's out-of-fold values). Unscaled, the rate varies by only about
+±0.09, so it would need a large coefficient, which the L2 penalty shrinks; scaling
+puts it on the same footing as `Distance`. The rate is computed before
+`encode()`, on the raw columns, because `encode()` turns validation categories
+unseen in train into missing values (none in validation, but test has CSG and
+LNS).
+
+#### Results
+
+| | MOD-1 | EXP-4 LR | MOD-2 tuned | EXP-4 XGBoost |
+|---|---|---|---|---|
+| Validation PR-AUC | 0.3154 | **0.3180** (+0.0025) | **0.3317** | 0.3315 (−0.0002) |
+| `pr_auc_over_floor` (validation) | 1.562 | 1.574 | 1.642 | 1.641 |
+| F1 | 0.393 | **0.396** (+0.003) | 0.4072 | 0.4073 (+0.0001) |
+| Threshold | 0.233 | 0.221 | 0.229 | 0.230 |
+| Precision / recall | 0.288 / 0.621 | 0.285 / 0.650 | 0.297 / 0.647 | 0.297 / 0.650 |
+| `pr_auc_over_floor` train vs. validation | 1.567 / 1.562 | 1.586 / 1.574 | 1.778 / 1.642 | 1.764 / 1.641 |
+| Gap | 0.3% | 0.8% | 8.3% | **7.5%** |
+| Iterations / trees kept | 50 iterations | 44 iterations | 345 trees | 302 trees |
+
+Source: `reports/logistic_regression/exp4_metrics.json` (W&B run `1r7xbrnu`,
+`EXP-4-logistic-regression`), `reports/xgboost/exp4_metrics.json` (W&B run
+`4vwq1ui5`, `EXP-4-xgboost`), both tagged `13-plus-late-rate`; baselines as in
+the headline table.
+
+- **Logistic regression gains a little.** LR with one-hot `Origin` and one-hot
+  `DepTimeBlk` is additive: it learns "DFW adds x" and "17:00 adds y" but cannot
+  represent "DFW *at* 17:00 is especially bad". The late rate gives it that
+  interaction as one number. +0.0025 PR-AUC is about a fifth of what tuning gave
+  XGBoost (+0.012) and larger than the 0.001 we called a tie in MOD-3.
+- **XGBoost gains nothing on validation.** Trees can already build the
+  `Origin` × `DepTimeBlk` interaction from the two columns. −0.0002 PR-AUC and
+  +0.0001 F1 are noise.
+- **But XGBoost's gap shrank from 8.3% to 7.5%, from train, not validation.**
+  Train `pr_auc_over_floor` fell from 1.778 to 1.764 while validation stayed at
+  1.641, and early stopping kept fewer trees (345 → 302). A plausible reading:
+  the trees had been spending splits on `Origin` × `DepTimeBlk` combinations,
+  some specific to the training months; given the rate as one number, they need
+  fewer of them. Same validation score, slightly less overfitting.
+- **LR's gap grew from 0.3% to 0.8%.** Still a tenth of XGBoost's and not
+  overfitting. Expected from the two known mismatches between train and
+  validation values (Caveats).
+
+**Verdict: not adopted.** The late rate helps the linear model a little and adds
+nothing to XGBoost, which stays the tree model on 13 features for EXP-2, EVAL-5,
+and EVAL-4. EVAL-4 scores MOD-1 as the baseline; the EXP-4 LR result is reported
+as the ablation. `src/features/late_rate.py` stays for EXP-1 (weather-delay
+rate), which needs the same out-of-fold and smoothing logic.
+
+#### Caveats
+
+- **Out-of-fold leaves a small trace.** Within a key the 5 folds get 5 slightly
+  different values, and a fold that happens to hold more late flights gets a
+  slightly lower rate (within-key correlation −0.055, table above). Validation
+  rows do not have this, so a model that used it would show a larger gap.
+- **Train and validation values come from different amounts of data:** training
+  rows' rates use 80% of train (4 folds), validation's use 100%. This matters
+  mainly for small keys, which smoothing covers.
+- One key only (`Origin` + `DepTimeBlk`). The data dictionary also lists
+  `Reporting_Airline` + flight number as a key; not tested.
+- The differences are small and both runs use validation for early stopping and
+  the threshold. A bootstrap of validation PR-AUC would put an interval on LR's
+  +0.0025; not done. Test (EVAL-4) is the unbiased comparison.
+- Single run per model; `train_seconds` (28.3 s for EXP-4 XGBoost vs. 40.7 s
+  median for MOD-2) is not comparable, because single timings on this laptop
+  vary widely (MOD-3 Caveats).
+
+#### Figures
+
+- `reports/logistic_regression/figures/exp4_pr_curve.png`, `exp4_thresholds.png`
+- `reports/xgboost/figures/exp4_pr_curve.png`, `exp4_thresholds.png`
+- W&B: filter by tag `13-plus-late-rate`; `EXP-4-xgboost` has per-round
+  `train_logloss` / `val_logloss` history to overlay with MOD-2's final run.
+- Suggested slide: the Results table's PR-AUC and gap rows, titled "Late rate
+  helps the linear model, not the trees".

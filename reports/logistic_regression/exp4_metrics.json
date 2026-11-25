@@ -1,0 +1,56 @@
+{
+  "run": "EXP-4-logistic-regression",
+  "date": "2026-11-25",
+  "sklearn_version": "1.9.0",
+  "train_rows": 5105534,
+  "validation_rows": 591206,
+  "features": {
+    "one_hot": [
+      "Reporting_Airline",
+      "Origin",
+      "Dest",
+      "DepTimeBlk",
+      "ArrTimeBlk",
+      "OriginState",
+      "DestState",
+      "OriginCityMarketID",
+      "DestCityMarketID",
+      "DayofMonth",
+      "DayOfWeek"
+    ],
+    "scaled": [
+      "CRSElapsedTime",
+      "Distance",
+      "late_rate"
+    ]
+  },
+  "hyperparameters": {
+    "C": 1.0,
+    "tol": 0.0001,
+    "max_iter": 1000
+  },
+  "iterations": 44,
+  "validation": {
+    "pr_auc": 0.31797897155690147,
+    "log_loss": 0.47813334524039713,
+    "floor": 0.2019888160810276,
+    "f1_floor": 0.33609100746809484,
+    "pr_auc_over_floor": 1.5742404838362167,
+    "threshold": 0.22084082769310112,
+    "precision": 0.2849297367145857,
+    "recall": 0.6499577112136463,
+    "f1": 0.39618090913963266,
+    "confusion_matrix": {
+      "tp": 77616,
+      "fp": 194788,
+      "fn": 41801,
+      "tn": 277001
+    }
+  },
+  "train": {
+    "log_loss": 0.5016933286275516,
+    "pr_auc": 0.3554594369379469,
+    "floor": 0.22408645207337763,
+    "pr_auc_over_floor": 1.5862602743228353
+  }
+}
