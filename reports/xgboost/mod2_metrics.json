@@ -1,0 +1,71 @@
+{
+  "run": "MOD-2",
+  "date": "2026-11-23",
+  "xgb_version": "3.4.1",
+  "train_rows": 5105534,
+  "validation_rows": 591206,
+  "features": {
+    "ordinal": [
+      "DepTimeBlk",
+      "ArrTimeBlk"
+    ],
+    "numerical": [
+      "CRSElapsedTime",
+      "Distance",
+      "DayofMonth",
+      "DayOfWeek"
+    ],
+    "category": [
+      "Origin",
+      "Dest",
+      "OriginCityMarketID",
+      "DestCityMarketID",
+      "OriginState",
+      "DestState",
+      "Reporting_Airline"
+    ]
+  },
+  "hyperparameters": {
+    "tree_method": "hist",
+    "enable_categorical": true,
+    "eval_metric": "logloss",
+    "early_stopping_rounds": 50,
+    "n_estimators": 6000,
+    "random_state": 42,
+    "learning_rate": 0.06264442790601481,
+    "max_depth": 5,
+    "min_child_weight": 26.024322787406145,
+    "subsample": 0.7407973309841216,
+    "colsample_bytree": 0.5452404425600058,
+    "reg_lambda": 7.46773213173542,
+    "reg_alpha": 0.0,
+    "gamma": 0.0,
+    "max_cat_to_onehot": 4,
+    "max_cat_threshold": 120
+  },
+  "best_iteration": 344,
+  "rounds_trained": 395,
+  "train": {
+    "log_loss": 0.4891292452812195,
+    "pr_auc": 0.39849330156711255,
+    "floor": 0.22408645207337763,
+    "pr_auc_over_floor": 1.7783016236814932
+  },
+  "validation": {
+    "pr_auc": 0.3317061223466792,
+    "log_loss": 0.4731478989124298,
+    "floor": 0.2019888160810276,
+    "f1_floor": 0.33609100746809484,
+    "pr_auc_over_floor": 1.642200438531288,
+    "threshold": 0.22943876683712006,
+    "precision": 0.2970718858746852,
+    "recall": 0.6469598130919383,
+    "f1": 0.40717609794403953,
+    "confusion_matrix": {
+      "tp": 77258,
+      "fp": 182807,
+      "fn": 42159,
+      "tn": 288982
+    }
+  }
+}

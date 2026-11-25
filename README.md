@@ -68,6 +68,7 @@ an error if any check fails; re-running overwrites the files. See
 - `scripts/fetch_bts_data.py` — download and extract the monthly data (AI-generated, see notice above)
 - `scripts/utils.py` — row counts and late rates per month
 - `scripts/preprocess.py` — build the train/val/test Parquet files
+- `scripts/export_wandb_runs.py` — save every W&B run with a given name and tag (e.g. all hyperopt trials) to a CSV in `reports/`, e.g. `uv run python scripts/export_wandb_runs.py --run MOD-2 --tag hyperopt-trial --out reports/xgboost/mod2_trials.csv`. Takes about 2 minutes
 
 `docs/readme.html` is the BTS field documentation for all 109 columns.
 
@@ -75,6 +76,39 @@ an error if any check fails; re-running overwrites the files. See
 
 - Run from the project root
 - `uv run python -m src.baseline.logistic_regression` - runs the logistic regression baseline, adds metrics to `reports/logistic_regression`
+
+## Running XGBoost (MOD-2)
+
+Run from the project root. On macOS, install `libomp` first (see Setup).
+
+```bash
+uv run python -m src.ensemble.xgboost_model             # one run with the default hyperparameters
+uv run python -m src.ensemble.xgboost_model --tune 90   # hyperopt search: 90 trials, then retrain the best
+```
+
+- **Default run:** trains once with `DEFAULT_HYPERPARAMS_DICT` (XGBoost's
+  defaults) and saves the outputs below. Takes about 15 seconds on an M-series Mac.
+- **`--tune N`:** runs `N` hyperopt (TPE) trials over 7 hyperparameters
+  (`learning_rate`, `max_depth`, `min_child_weight`, `subsample`,
+  `colsample_bytree`, `reg_lambda`, `max_cat_threshold`), picking the
+  configuration with the highest validation PR-AUC. Each trial is logged to W&B
+  as a `MOD-2` run tagged `hyperopt-trial` and writes no files. The best
+  configuration is then retrained and saved, tagged `final`. Trials average
+  under a minute (longer at low learning rates), so 90 trials take about 1–2 hours.
+- **Long runs:** keep the Mac awake and plugged in, lid open:
+  ```bash
+  caffeinate -i uv run python -m src.ensemble.xgboost_model --tune 90
+  ```
+  Python loads the code at start, so editing files during a run is safe, but
+  do not switch branches: the final step writes its outputs into whatever
+  branch is checked out when it finishes. Avoid training another model at the
+  same time; the search uses every CPU core.
+- **Outputs** (default run, or the `final` run after `--tune`; both overwrite
+  the previous files):
+  - `reports/xgboost/mod2_metrics.json`: run info, every hyperparameter used, `best_iteration`, `train` and `validation` blocks
+  - `reports/xgboost/figures/mod2_pr_curve.png`, `mod2_thresholds.png`
+  - `models/mod2_xgboost.joblib`: the fitted model and its validation threshold
+- Prefix any command with `WANDB_MODE=disabled` to run without W&B.
 
 ## Tracking runs with Weights & Biases
 
@@ -140,4 +174,13 @@ log_to_wandb(results=results,
 - **`history`** (optional) is a list of dicts, one per training round, e.g.
   `[{"train_logloss": 0.62, "val_logloss": 0.63}, ...]`; each key becomes a
   line chart. Use it for per-tree loss in boosted models.
+- **Compare runs on `validation.*`, never on `val_logloss`.** With `history`,
+  the summary holds two validation log losses that mean different things. W&B
+  copies the *last* history step into the summary, so `val_logloss` is the
+  final round trained, which with early stopping is always
+  `early_stopping_rounds` past the best one (MOD-2 default run: 0.4788 at
+  round 67). `validation.log_loss` is computed from the predictions of the
+  model actually used, at the best iteration (0.4762 at round 17). Sort and
+  filter the runs table by `validation.pr_auc`, `validation.f1`, and
+  `validation.log_loss`.
 - Only train and validation are logged. Never score or log the test split.

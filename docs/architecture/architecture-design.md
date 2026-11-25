@@ -43,16 +43,18 @@ Only columns known at booking time are model inputs. The full column-by-column d
 
 Both models get the **same features**; only the encoding differs, because the models use their inputs differently. The per-column plan is in the encoding columns of [data-dictionary.md](data-dictionary.md).
 
-- **Where it happens:** in the model pipeline (scikit-learn `Pipeline` + `ColumnTransformer`), not in `preprocess.py`. The processed files hold raw values.
-- **Fit on train only:** every encoder and scaler is fit on the training split, then applied unchanged to validation and test. Fitting on all the data would let validation/test values shape the encoding (leakage).
+- **Where it happens:** in each model script, not in `preprocess.py`. The processed files hold raw values. Logistic regression uses a scikit-learn `Pipeline` + `ColumnTransformer`; XGBoost uses `encode()` in `src/ensemble/xgboost_model.py` (pandas `category` columns).
+- **Fit on train only:** every encoder and scaler is fit on the training split, then applied unchanged to validation and test. Fitting on all the data would let validation/test values shape the encoding (leakage). For pandas categories this means validation and test are re-coded to **train's** category list (`pd.Categorical(..., categories=train[col].cat.categories)`); otherwise each file numbers its categories differently and the same code means a different airport.
 - **Logistic regression** learns one weight per input column:
   - Categorical columns → one-hot (`OneHotEncoder(handle_unknown="ignore")`), so each category gets its own weight. Integer codes would force a straight-line effect — e.g. late rate rises through the day and falls after 20:00 (July 2025), which one weight on a 0–18 code cannot fit.
   - Numeric columns → standardized (`StandardScaler`), so the solver converges and regularization treats features on a comparable scale.
-- **Gradient boosting** splits on thresholds:
-  - No scaling needed.
-  - Ordered categories (`DepTimeBlk`, `ArrTimeBlk`) → ordinal codes 0–18, so one split can express "departures after 15:00".
-  - Unordered categories (airline, airports, states, city markets) → the library's native categorical support.
-- **Unseen categories** in validation/test (PRE-6): logistic regression ignores them (all-zero one-hot row); for gradient boosting, confirm how the chosen library (XGBoost or LightGBM) handles an unseen category before relying on it.
+- **Gradient boosting** splits numeric columns on thresholds ("Distance ≤ 800") and categorical columns into groups ("Origin in {ATL, ORD, ...}"):
+  - No scaling needed: a threshold split puts the same flights on each side whatever the units.
+  - Numeric columns (`CRSElapsedTime`, `Distance`, `DayofMonth`, `DayOfWeek`) → as-is.
+  - All categorical columns, **including the time blocks** (`DepTimeBlk`, `ArrTimeBlk`) → pandas `category` with the library's native categorical support (`enable_categorical=True` in XGBoost). City market IDs are stored as integers but are labels, not quantities, so they are converted to `category` too.
+  - **Change from the original plan (MOD-2):** the time blocks were planned as ordinal codes 0–18, so one split could express "departures after 15:00". MOD-2 kept them as categories for a simpler encoding; a category split can still group adjacent blocks, but has to learn their order from the data. EXP-9 tests whether ordinal codes do better.
+  - Native categorical splits avoid one-hot encoding, which for ~1,500 category columns × 5.1M rows would need ~60 GB in memory and could only split off one category at a time.
+- **Unseen categories** in validation/test (PRE-6): logistic regression ignores them (all-zero one-hot row). For XGBoost, re-coding to train's category list turns an unseen value into a missing value, which follows each split's learned default branch, so the row is predicted from its other features (checked in MOD-2). The re-coding is required: XGBoost 3.4 rejects a category label it did not see in training. Validation has none; test has 51/48 rows (EVAL-4).
 
 ## How are we using our training / validation / testing splits
 
