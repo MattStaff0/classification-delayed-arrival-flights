@@ -1,0 +1,79 @@
+{
+  "run": "MOD-3",
+  "date": "2026-11-24",
+  "lgbm_version": "4.7.0",
+  "train_rows": 5105534,
+  "validation_rows": 591206,
+  "features": {
+    "ordinal": [
+      "DepTimeBlk",
+      "ArrTimeBlk"
+    ],
+    "numerical": [
+      "CRSElapsedTime",
+      "Distance",
+      "DayofMonth",
+      "DayOfWeek"
+    ],
+    "category": [
+      "Origin",
+      "Dest",
+      "OriginCityMarketID",
+      "DestCityMarketID",
+      "OriginState",
+      "DestState",
+      "Reporting_Airline"
+    ]
+  },
+  "train_seconds": 124.9,
+  "hyperparameters": {
+    "objective": "binary",
+    "verbose": -1,
+    "subsample_freq": 1,
+    "n_estimators": 6000,
+    "random_state": 42,
+    "learning_rate": 0.03730354332157487,
+    "num_leaves": 7,
+    "max_depth": -1,
+    "min_child_samples": 692,
+    "subsample": 0.7747352123113382,
+    "colsample_bytree": 0.5522981063265484,
+    "reg_lambda": 0.7912971511403097,
+    "reg_alpha": 0.0,
+    "min_split_gain": 0.0,
+    "max_cat_to_onehot": 4,
+    "max_cat_threshold": 88,
+    "cat_smooth": 10
+  },
+  "best_iteration": 2493,
+  "rounds_trained": 2544,
+  "params_source": {
+    "file": "reports/lightgbm/mod3_metrics.json",
+    "overrides": [
+      "num_leaves=7"
+    ]
+  },
+  "train": {
+    "log_loss": 0.48962528468105626,
+    "pr_auc": 0.3978022228095528,
+    "floor": 0.22408645207337763,
+    "pr_auc_over_floor": 1.7752176409098197
+  },
+  "validation": {
+    "pr_auc": 0.3308261253261554,
+    "log_loss": 0.4734022383120562,
+    "floor": 0.2019888160810276,
+    "f1_floor": 0.33609100746809484,
+    "pr_auc_over_floor": 1.637843776426933,
+    "threshold": 0.2279786389156987,
+    "precision": 0.2965514354112511,
+    "recall": 0.6524866643777687,
+    "f1": 0.4077725793114998,
+    "confusion_matrix": {
+      "tp": 77918,
+      "fp": 184829,
+      "fn": 41499,
+      "tn": 286960
+    }
+  }
+}

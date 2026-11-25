@@ -6,6 +6,8 @@ from pathlib import Path
 import xgboost as xgb
 from src.evaluation import evaluate, print_report, plot_pr_curve, plot_thresholds, save_model, validation_summary, save_json, log_to_wandb, compute_loss
 import argparse
+import time
+import json
 
 # Constants
 
@@ -107,7 +109,7 @@ def build_history(model):
     history = [{"train_logloss": training_loss, "val_logloss": validation_loss} for training_loss, validation_loss in zip(training_history, validation_history)]
     return history
 
-def build_results(model, training, training_metrics, validation, validation_metrics, validation_floor, history, hyperparams):
+def build_results(model, training, training_metrics, validation, validation_metrics, validation_floor, history, train_seconds, hyperparams, params_source=None):
     results = {
       "run": "MOD-2",
       "date": date.today().isoformat(),
@@ -115,6 +117,7 @@ def build_results(model, training, training_metrics, validation, validation_metr
       "train_rows": len(training),
       "validation_rows": len(validation),
       "features": {"ordinal": ORDINAL_COLUMNS, "numerical": NUMERIC_COLUMNS, "category": CATEGORICAL_COLUMNS},
+      "train_seconds": train_seconds,
       "hyperparameters": {
           **FIXED_PARAMS,
           **hyperparams
@@ -122,6 +125,10 @@ def build_results(model, training, training_metrics, validation, validation_metr
       "best_iteration": int(model.best_iteration),
       "rounds_trained": len(history),
     }
+
+    # only for --params runs: which file the settings came from and what --set changed
+    if params_source is not None:
+        results["params_source"] = params_source
 
     results["train"] = training_metrics
     results["validation"] = validation_summary(validation_metrics, validation_floor)
@@ -155,14 +162,20 @@ def build_model(fixed_params, hyperparams: dict):
                               **hyperparams)
     return model
 
-def train_and_evaluate(hyperparams, data, tags, save):
+def train_and_evaluate(hyperparams, data, tags, save, params_source=None):
     training, training_y, validation, validation_y = data
     
     # make the model
     model = build_model(FIXED_PARAMS, hyperparams)
+
+    # start a timer for the training of the model only 
+    time_start = time.perf_counter()
     
     # fit the model, verbose will report every 100 rounds the rounds are based on N_ESTIMATORS
     model.fit(training, training_y, eval_set=[(training, training_y), (validation, validation_y)], verbose=100)
+
+    # end the timer as we only care about the timing of training
+    train_seconds = round(time.perf_counter() - time_start, 1)
     
     # create the history
     history = build_history(model=model)
@@ -170,7 +183,7 @@ def train_and_evaluate(hyperparams, data, tags, save):
     # print where the model stopped and what the log loss at that round
     best_iteration = model.best_iteration
     best_log_loss = model.best_score
-    print(f'Best Iteration: {best_iteration}, Best Log Loss: {best_log_loss}')
+    print(f'Best Iteration: {best_iteration}, Best Log Loss: {best_log_loss}, Training Seconds: {train_seconds}')
     
     # training and validation probabilites
     training_probabilities = model.predict_proba(training)[:, 1]
@@ -189,13 +202,32 @@ def train_and_evaluate(hyperparams, data, tags, save):
                             validation_metrics=validation_metrics,
                             validation_floor=validation_floor,
                             history=history,
-                            hyperparams=hyperparams)
+                            train_seconds=train_seconds,
+                            hyperparams=hyperparams,
+                            params_source=params_source)
     
     # save to weights and biases
     figure_paths = save_outputs(results=results, validation_metrics=validation_metrics, validation_floor=validation_floor, model=model) if save else {}
     log_to_wandb(results=results, figures=figure_paths, tags=tags, history=history)
 
     return validation_metrics["pr_auc"]
+
+def load_params(path, overrides):
+    # metrics JSON (uses its "hyperparameters" block) or a plain dict of hyperparameters
+    res = json.loads(Path(path).read_text())
+    all_params = res.get("hyperparameters", res)
+
+    # fixed params come from the code only; build_model already passes FIXED_PARAMS
+    params = {hyperparam_label : all_params[hyperparam_label] for hyperparam_label in all_params if hyperparam_label not in FIXED_PARAMS}
+
+    # --set KEY=VALUE overrides for this run only
+    for override in overrides:
+        key, value = override.split("=", 1)
+        if key not in DEFAULT_HYPERPARAMS_DICT:
+            raise ValueError(f"--set {key}: not a tunable hyperparameter, expected one of {sorted(DEFAULT_HYPERPARAMS_DICT)}")
+        params[key] = json.loads(value)
+
+    return to_params(params)
 
 def to_params(trial):
     hyperparams = {**DEFAULT_HYPERPARAMS_DICT, **trial}
@@ -236,12 +268,22 @@ def run_hyperopt(data, max_evals):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tune", type=int, default=0)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--tune", type=int, default=0)
+    mode.add_argument("--params", type=Path, default=None, help="train and save once with the hyperparameters in this JSON file")
+    parser.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE", help="override one hyperparameter from --params for this run (repeatable)")
     args = parser.parse_args()
+
+    if args.overrides and args.params is None:
+        parser.error("--set requires --params")
 
     data = prepare_data()
     if args.tune > 0:
         run_hyperopt(data, args.tune)
+    elif args.params is not None:
+        params = load_params(args.params, args.overrides)
+        params_source = {"file": str(args.params), "overrides": args.overrides}
+        train_and_evaluate(params, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "final"], save=True, params_source=params_source)
     else:
       train_and_evaluate(DEFAULT_HYPERPARAMS_DICT, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "default"], save=True)
 
