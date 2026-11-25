@@ -122,6 +122,20 @@ Built by `uv run scripts/preprocess.py --dataset fullyear`. Reads the 12 months 
 - **Values in train that `base` train has no rows for:** airline `9E` (97,482 rows, Jul–Dec 2024 only, absent from validation and test) and airports ALW, CSG, ITH, VLD (1,438 origin rows). Kept: dropping them would add a filter `base` does not have. `base` train already has the same situation with `HA` (Jul–Dec 2025 only).
 - New months: 0 nulls, 0 out-of-range rows, 0 duplicates after the instance filter; the existing cleaning rule removes nothing from them.
 
+### Apr–Jun 2025 dataset (EXP-2 run B)
+
+Built by `uv run scripts/preprocess.py --dataset aprjun2025`. Reads the 12 months in `data/raw` plus only `2025-0[4-6]-flight-data.csv` from `data/raw_2024` (15 files). Used only by EXP-2 run B (and a possible EXP-3, since its train has every month value).
+
+| File | Months | Rows | Late rate |
+| ---- | ------ | ---- | --------- |
+| `data/processed_aprjun2025/train.parquet` | 2025-04 – 2026-03 | 6,880,310 | 0.228 |
+| `data/processed_aprjun2025/val.parquet` | 2026-04 | 591,206 | 0.202 |
+| `data/processed_aprjun2025/test.parquet` | 2026-05 – 2026-06 | 1,199,540 | 0.236 |
+
+- Validation and test are identical to `data/processed`, category lists included (`DataFrame.equals` True): Apr–Jun 2025 adds no airline or airport that `base` lacks.
+
+**EXP-2 outcome:** neither extended dataset was adopted (`docs/findings.md`, EXP-2), so `data/processed` stays the project's dataset (PRE-8).
+
 ## Dropped Columns
 
 | Group                      | Columns                                                                                                                                        | Reason                                                                                                                                      |

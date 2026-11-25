@@ -21,6 +21,14 @@ DATASETS = {
           "files": 24,
           "train_rows": 12_053_138,
       },
+      # EXP-2 run B: base + only Apr-Jun 2025, so train covers the validation/test months with about a third of fullyear's added rows
+      # 5,105,534 base train + 1,774,776 Apr-Jun 2025 rows (notebooks/EXP_2_Check_new_months.py)
+      "aprjun2025": {
+          "raw": [("data/raw", DATASET_PATH), ("data/raw_2024", "2025-0[4-6]-flight-data.csv")],
+          "out": "data/processed_aprjun2025",
+          "files": 15,
+          "train_rows": 6_880_310,
+      },
       # we can add more here if we want only seasonal split or any other data split for this here
     }
 

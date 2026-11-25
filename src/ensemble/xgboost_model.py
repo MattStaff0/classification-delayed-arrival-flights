@@ -25,7 +25,7 @@ WANDB_FEATURE_TAG = "13-baseline-features"
 WANDB_MODEL_TAG = 'xgboost'
 
 # names here must match preprocess.py's datasets
-DATA_FOLDERS = {"base": "data/processed", "fullyear": "data/processed_fullyear"}
+DATA_FOLDERS = {"base": "data/processed", "fullyear": "data/processed_fullyear", "aprjun2025": "data/processed_aprjun2025"}
 
 # late_rate, dataset, run name, feature tag, data tag, and output files for each kind of run, so a run never overwrites another runs files
 RUNS = {
@@ -35,6 +35,9 @@ RUNS = {
             "metrics": "reports/xgboost/exp4_metrics.json", "model": "models/exp4_xgboost.joblib", "prefix": "exp4"},
     "EXP-2": {"late_rate": False, "dataset": "fullyear", "feature_tag": WANDB_FEATURE_TAG, "data_tag": "21-training-months",
             "metrics": "reports/xgboost/exp2_metrics.json", "model": "models/exp2_xgboost.joblib", "prefix": "exp2"},
+    # EXP-2 run B: base train + Apr-Jun 2025 only (Apr 2025 - Mar 2026)
+    "EXP-2-aprjun": {"late_rate": False, "dataset": "aprjun2025", "feature_tag": WANDB_FEATURE_TAG, "data_tag": "12-training-months",
+            "metrics": "reports/xgboost/exp2_aprjun_metrics.json", "model": "models/exp2_aprjun_xgboost.joblib", "prefix": "exp2_aprjun"},
 }
 
 # training setup
