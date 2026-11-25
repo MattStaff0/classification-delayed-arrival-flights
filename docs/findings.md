@@ -19,13 +19,14 @@ scored yet (EVAL-4).
 | MOD-2 XGBoost, default settings | 0.320 | 1.59 | 0.402 | 12.4% |
 | **MOD-2 XGBoost, tuned** | **0.332** | **1.64** | **0.407** | 8.3% |
 | MOD-3 LightGBM, default settings | 0.319 | 1.58 | 0.402 | 13.6% |
-| MOD-3 LightGBM, tuned | ⟨after search⟩ | ⟨after search⟩ | ⟨after search⟩ | ⟨after search⟩ |
+| MOD-3 LightGBM, tuned (7 leaves) | 0.331 | 1.64 | 0.408 | 8.4% |
 
 Sources: `reports/logistic_regression/mod1_metrics.json`,
 `git show 5363871:reports/xgboost/mod2_metrics.json` (default run),
 `reports/xgboost/mod2_metrics.json` (tuned),
 `git show 16fd05d:reports/lightgbm/mod3_metrics.json` (MOD-3 default run),
-`reports/lightgbm/mod3_metrics.json` (MOD-3 tuned). "× no-skill" is
+`reports/lightgbm/mod3_metrics.json` (MOD-3 tuned; the search's own best,
+trial 26, is `git show e3351b6:reports/lightgbm/mod3_metrics.json`). "× no-skill" is
 `pr_auc_over_floor`; the gap is train ÷ validation `pr_auc_over_floor` − 1.
 
 ---
@@ -311,17 +312,21 @@ PR-AUC. Each trial is logged to W&B as `MOD-3` with tag `hyperopt-trial`, and
 all trials are exported to `reports/lightgbm/mod3_trials.csv`. Same 7 settings
 as MOD-2, using LightGBM's equivalents and the same ranges where they exist:
 
-| Hyperparameter | Range searched | Best trial (#⟨n⟩) | Default |
+| Hyperparameter | Range searched | Best trial (#26) | Default |
 |---|---|---|---|
-| `learning_rate` | 0.02 – 0.3 (log) | ⟨⟩ | 0.1 |
-| `num_leaves` (replaces `max_depth`) | 15 – 255 (log, integer) | ⟨⟩ | 31 |
-| `min_child_samples` (replaces `min_child_weight`) | 20 – 2,000 (log, integer) | ⟨⟩ | 20 |
-| `subsample` | 0.5 – 1.0 | ⟨⟩ | 1.0 |
-| `colsample_bytree` | 0.5 – 1.0 | ⟨⟩ | 1.0 |
-| `reg_lambda` | 0.1 – 20 (log) | ⟨⟩ | 0 |
-| `max_cat_threshold` | 8 – 128 (step 8) | ⟨⟩ | 32 |
+| `learning_rate` | 0.02 – 0.3 (log) | **0.037** | 0.1 |
+| `num_leaves` (replaces `max_depth`) | 15 – 255 (log, integer) | **15** (lower bound) | 31 |
+| `min_child_samples` (replaces `min_child_weight`) | 20 – 2,000 (log, integer) | **692** | 20 |
+| `subsample` | 0.5 – 1.0 | **0.77** | 1.0 |
+| `colsample_bytree` | 0.5 – 1.0 | **0.55** | 1.0 |
+| `reg_lambda` | 0.1 – 20 (log) | 0.79 | 0 |
+| `max_cat_threshold` | 8 – 128 (step 8) | 88 | 32 |
 
-`max_depth` (−1) and `cat_smooth` (10) stay at their defaults.
+`max_depth` (−1) and `cat_smooth` (10) stay at their defaults. Trial 26 scored
+validation PR-AUC 0.329 (`pr_auc_over_floor` 1.630, F1 0.406, 11.1% gap, 948
+trees). Source: `reports/lightgbm/mod3_trials.csv`; trial 26's final run is
+`git show e3351b6:reports/lightgbm/mod3_metrics.json` (W&B run `8cpfqsss`,
+tagged `superseded`).
 
 **Why a log scale for `num_leaves` and `min_child_samples`:** their effect is
 relative. Going from 15 to 30 leaves changes the model far more than going from
@@ -329,41 +334,182 @@ relative. Going from 15 to 30 leaves changes the model far more than going from
 of `num_leaves` draws fall in 15–30 (the size of MOD-2's best trees), and on a
 log scale about 25% do (checked on 2,000 draws).
 
-⟨After the search: what separated the 10 best trials from the 10 worst
-(medians, from `mod3_trials.csv`), when the best score was reached (plateau?),
-how many trials beat MOD-1 / MOD-3 default / MOD-2 tuned, the largest tree
-count (did any trial hit the 6,000 cap?).⟩
+**What separated good trials from bad ones** (median of the 10 best vs. the 10
+worst by validation PR-AUC):
+
+| | top 10 | bottom 10 |
+|---|---|---|
+| `num_leaves` | **16.5** | 99.5 |
+| `learning_rate` | 0.023 | 0.063 |
+| `min_child_samples` | 739 | 111 |
+| `colsample_bytree` | 0.54 | 0.91 |
+| `subsample` | 0.56 | 0.77 |
+| `reg_lambda` | 0.82 | 2.25 |
+| `max_cat_threshold` | 92 | 68 |
+| train vs. validation gap | 10.5% | 19.5% |
+
+- **Tree size mattered most.** Every top-10 trial had 15–19 leaves. Rank
+  correlation (Spearman) of `num_leaves` with validation PR-AUC is −0.63, and
+  with the gap +0.75: smaller trees scored higher *and* overfit less. Next
+  strongest: `colsample_bytree` (−0.58), `subsample` (−0.38), and
+  `learning_rate` (−0.37).
+- **The good trials sit in the most constrained corner of the space:** small
+  trees, slow learning, large minimum leaves, and few columns and rows per tree.
+  This is the same direction as MOD-2 (shallower, slower, fewer columns per
+  tree), only stronger.
+- **Unlike MOD-2, L2 did not matter much** (`reg_lambda` correlation +0.11; top
+  10 median 0.82 vs. MOD-2's best 7.5). Here the regularization comes from
+  small trees and large leaves instead.
+- **Results by tree size:**
+
+  | `num_leaves` | trials | best PR-AUC | median PR-AUC | median gap |
+  |---|---|---|---|---|
+  | 15–20 | 25 | **0.3292** | **0.3272** | **11.1%** |
+  | 21–32 | 25 | 0.3276 | 0.3242 | 13.8% |
+  | 33–64 | 19 | 0.3264 | 0.3222 | 16.5% |
+  | 65–128 | 12 | 0.3255 | 0.3211 | 17.6% |
+  | 129–255 | 9 | 0.3244 | 0.3209 | 18.4% |
+
+- All 90 trials beat MOD-1 (0.315), 83 beat the MOD-3 default (0.3188), and
+  **none beat MOD-2 tuned (0.3317)**; range 0.3164–0.3292.
+- **The search plateaued early:** trial 21 was already within 0.001 of the best
+  (trial 26).
+- No trial was cut off by the tree cap (most trees used: 1,334 of 6,000).
+
+### Step 2b: the best trial was at the edge of the range, so we checked below it
+
+Trial 26 used `num_leaves` = 15, the **smallest value the search allowed**, and
+the score was still improving toward that edge (table above). When the best
+value sits on a boundary, the true optimum may be past it. We re-ran trial 26's
+settings with **only `num_leaves` changed** (4, 7, 10, and 15 as the
+reference), logged to W&B as `MOD-3` with tag `boundary-check`:
+
+| `num_leaves` | Validation PR-AUC | `pr_auc_over_floor` val | `pr_auc_over_floor` train | Gap | F1 | Trees kept |
+|---|---|---|---|---|---|---|
+| 15 (trial 26) | 0.3292 | 1.630 | 1.811 | 11.1% | 0.406 | 948 |
+| 10 | 0.3302 | 1.635 | 1.788 | 9.4% | 0.407 | 1,545 |
+| **7** | **0.3308** | **1.638** | 1.775 | 8.4% | **0.408** | 2,494 |
+| 4 | 0.3287 | 1.627 | 1.711 | 5.1% | 0.406 | 3,049 |
+
+- **The optimum is inside the range: 7 leaves.** The score rises from 15 to 7
+  and falls at 4.
+- **At 4 leaves the model underfits.** It has the smallest gap (5.1%), but only
+  because it is too simple to fit even the training months (train
+  `pr_auc_over_floor` drops to 1.711), and validation drops too. A smaller gap
+  only helps when validation does not get worse.
+- The 15-leaf run reproduced trial 26 exactly (best round 947, same validation
+  log loss), so the comparison is like for like.
+- **Final MOD-3 configuration: trial 26 with `num_leaves` = 7**, trained with
+  `--params reports/lightgbm/mod3_metrics.json --set num_leaves=7`. The settings
+  and override are recorded in `mod3_metrics.json` (`params_source`). The search
+  space in the code stays 15–255, the range that was actually searched.
 
 ### Step 3: the tuned model vs. XGBoost
 
-| | MOD-2 tuned | MOD-3 default | MOD-3 tuned |
+| | MOD-2 tuned | MOD-3 default | MOD-3 tuned (7 leaves) |
 |---|---|---|---|
-| Validation PR-AUC | 0.332 | 0.319 | ⟨⟩ |
-| `pr_auc_over_floor` (validation) | 1.642 | 1.578 | ⟨⟩ |
-| F1 | 0.407 | 0.402 | ⟨⟩ |
-| Threshold | 0.229 | 0.224 | ⟨⟩ |
-| Precision / recall | 0.297 / 0.647 | 0.291 / 0.647 | ⟨⟩ |
-| `pr_auc_over_floor` train vs. validation | 1.778 / 1.642 | 1.793 / 1.578 | ⟨⟩ |
-| Gap | 8.3% | 13.6% | ⟨⟩ |
-| Trees kept | 345 | 60 | ⟨⟩ |
-| Training time | ⟨XGBoost timing re-run⟩ | 8.5 s | ⟨⟩ |
-| Seconds per round | ⟨⟩ | 0.077 | ⟨⟩ |
+| Validation PR-AUC | **0.332** | 0.319 | 0.331 |
+| `pr_auc_over_floor` (validation) | **1.642** | 1.578 | 1.638 |
+| F1 | 0.407 | 0.402 | **0.408** |
+| Threshold | 0.229 | 0.224 | 0.228 |
+| Precision / recall | 0.297 / 0.647 | 0.291 / 0.647 | 0.297 / 0.652 |
+| `pr_auc_over_floor` train vs. validation | 1.778 / 1.642 | 1.793 / 1.578 | 1.775 / 1.638 |
+| Gap | **8.3%** | 13.6% | 8.4% |
+| Trees kept | 345 | 60 | 2,494 |
+| Rounds trained | 395 | 110 | 2,544 |
+| Training time | **40.7 s** (median of 3) | 8.5 s (1 run) | 145.4 s (median of 3) |
+| Seconds per round | 0.103 | 0.077 | **0.057** |
 
-⟨After the search: did tuning help as much as for XGBoost; did the gap shrink
-because validation improved or train got worse; which settings mattered; the
-verdict on score and speed, and which model the experiments (EXP-2, EXP-4) and
-EVAL-5 use.⟩
+Source: `reports/lightgbm/mod3_metrics.json` (W&B run `3k15e6d7`),
+`reports/xgboost/mod2_metrics.json`.
+
+- **Tuning helped both libraries by the same amount:** +0.012 PR-AUC for each
+  (LightGBM 0.319 → 0.331, XGBoost 0.320 → 0.332).
+- **On validation the two are tied.** XGBoost is 0.001 ahead on PR-AUC,
+  LightGBM is 0.001 ahead on F1, and the gaps are 8.3% vs. 8.4%. These
+  differences are far smaller than either model's gain from tuning, and both
+  were tuned on validation, so validation cannot separate them.
+- **The gap shrank mostly because validation improved:** validation
+  `pr_auc_over_floor` rose from 1.578 to 1.638 while train moved only from 1.793
+  to 1.775. The same pattern as MOD-2.
+- **LightGBM reached the same score with very different trees:** 2,494 trees of
+  7 leaves (roughly depth-3 trees) against XGBoost's 345 trees of depth up to 5
+  (up to 32 leaves). Many small, slow steps instead of fewer larger ones.
+- **The validation curve no longer turns up.** It falls and flattens through
+  round 2,494 (`mod3_val_logloss_default_vs_tuned.png`), where the default run
+  bottomed at round 60.
+- **XGBoost trains the final model about 3.6× faster** (40.7 s vs. 145.4 s),
+  even though each LightGBM round is about 1.8× cheaper (0.057 s vs. 0.103 s).
+  The tuned LightGBM needs 6.4× as many rounds (2,544 vs. 395) because its trees
+  are tiny and its learning rate is low. Leaf-wise growth is faster per tree, as
+  MOD-3's question expected, but the configuration that scores best gives that
+  advantage back in tree count.
+- **Verdict: XGBoost (MOD-2) is the tree model for EXP-2, EXP-4, and EVAL-5.**
+  The scores are tied on validation, XGBoost is 0.001 ahead on PR-AUC, and it
+  trains the final configuration 3.6× faster, which matters most for EXP-2's
+  roughly doubled training set.
+
+### Training time
+
+Each final configuration was trained 3 times with `--params` (MOD-2:
+`reports/xgboost/mod2_metrics.json`; MOD-3: `reports/lightgbm/mod3_metrics.json`,
+7 leaves), alternating the models so any slowdown over the session hits both
+equally. W&B was off (`WANDB_MODE=disabled`) so no extra runs were logged; the
+laptop was plugged in with other apps closed. `train_seconds` times `fit()` only.
+Every run reproduced its model exactly (XGBoost: best iteration 344, PR-AUC
+0.332; LightGBM: best iteration 2,493, PR-AUC 0.331).
+
+| Run (in order) | XGBoost (395 rounds) | LightGBM (2,544 rounds) | LightGBM ÷ XGBoost |
+|---|---|---|---|
+| 1 | 31.5 s | 121.5 s | 3.9× |
+| 2 | 40.7 s | 145.4 s | 3.6× |
+| 3 | 46.7 s | 163.9 s | 3.5× |
+| **Median** | **40.7 s** | **145.4 s** | **3.6×** |
+
+- **Both models slowed down run after run** (XGBoost +48%, LightGBM +35% from
+  run 1 to run 3). The likely cause is the laptop throttling as it heats up (a
+  fanless MacBook Air), which is why the runs alternated.
+- **The ratio stayed stable** (3.5–3.9×) even though the absolute times did not,
+  so the comparison holds; the seconds themselves depend on the machine.
+- The metrics JSONs keep the `train_seconds` of their W&B-logged final runs
+  (MOD-3: 124.9 s; MOD-2's final run predates the timer). The timing runs were
+  not committed, so the JSONs still match their W&B runs.
+
+Command (from the project root):
+
+```bash
+for i in 1 2 3; do
+  WANDB_MODE=disabled uv run python -m src.ensemble.xgboost_model --params reports/xgboost/mod2_metrics.json
+  WANDB_MODE=disabled uv run python -m src.ensemble.lightgbm_model --params reports/lightgbm/mod3_metrics.json
+done
+```
+
+Afterwards `git restore reports/`: each `--params` run rewrites the metrics
+JSON (same scores, new `date` and `train_seconds`).
 
 ### Caveats
 
 - Hyperparameters, early stopping, and the threshold were all chosen on
   validation, so validation scores are optimistic. The test split (EVAL-4) is
   the unbiased comparison.
-- Training times come from one machine, using all cores, with train and
-  validation log loss computed every round for both models. Compare seconds per
-  round as well as total time, since the two models stop at different rounds.
-- MOD-2 has no timed run yet; the speed comparison needs MOD-2's final
-  configuration re-run with the same timer.
+- The boundary check is additional tuning on validation, and it changed only
+  `num_leaves` with the other six settings fixed at trial 26's values. With
+  7-leaf trees the other settings might have a different optimum; a new search
+  with a wider range would test that.
+- `learning_rate`, `subsample`, and `colsample_bytree` also had their best
+  trials near the low end of their ranges (top-10 medians 0.023, 0.56, 0.54).
+  Only `num_leaves` was checked past its bound.
+- Training times come from one laptop, using all cores, with train and
+  validation log loss computed every round for both models. **Single timings are
+  noisy:** the identical 7-leaf configuration took 173.9 s in the boundary check
+  and 124.9 s in the final run, and 121.5–163.9 s across the 3 timing runs. The
+  comparison therefore uses the median of 3 alternating runs per model, and
+  reports seconds per round as well as total time, since the two models stop at
+  different rounds. The ratio between the models (3.5–3.9×) is more reliable
+  than the absolute seconds.
+- The speed result is for the **tuned** configurations. With default settings
+  LightGBM trained in 8.5 s (one run); the tuned model is slow because the search
+  chose small trees and a low learning rate, not because LightGBM is slow.
 
 ### Figures
 
@@ -372,11 +518,20 @@ All in `reports/lightgbm/figures/`:
 - `mod3_default_train_logloss.png`, `mod3_default_val_logloss.png`: the default
   run's curves (W&B panels). As with MOD-2, validation sits below train only
   because April has fewer late flights: read the shape, not the level.
-- ⟨After the search: `mod3_val_logloss_default_vs_tuned.png` (main slide),
-  `mod3_parallel_coordinates.png`, `mod3_tuned_train_logloss.png`,
-  `mod3_tuned_val_logloss.png`, and `mod3_pr_curve.png` / `mod3_thresholds.png`
-  for the tuned model. The committed `mod3_pr_curve.png` / `mod3_thresholds.png`
-  are from the default run and will be overwritten by the final run.⟩
+- **`mod3_val_logloss_default_vs_tuned.png`** (main slide): validation log loss
+  per boosting round, default vs. tuned. Default bottoms at round 60 and stops at
+  110; tuned keeps falling and flattens through round 2,494.
+- **`mod3_parallel_coordinates.png`**: all 90 `hyperopt-trial` runs (boundary
+  check and final runs excluded), one line per trial across the 7 searched
+  settings, colored by validation PR-AUC. Suggested slide title: "Best LightGBM
+  trials used the smallest trees, slow learning, and large leaves".
+- `mod3_tuned_train_logloss.png`, `mod3_tuned_val_logloss.png`: the final
+  7-leaf run's curves separately (appendix).
+- `mod3_pr_curve.png`, `mod3_thresholds.png`: PR curve and threshold choice for
+  the final 7-leaf model. The default run's versions are in commit `16fd05d`.
+- Boundary check: no figure; use the Step 2b table. Plotting validation PR-AUC
+  against `num_leaves` shows the peak at 7; a train-only chart does not show the
+  trade-off.
 
 ---
 
