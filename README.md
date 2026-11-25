@@ -68,6 +68,7 @@ an error if any check fails; re-running overwrites the files. See
 - `scripts/fetch_bts_data.py` — download and extract the monthly data (AI-generated, see notice above)
 - `scripts/utils.py` — row counts and late rates per month
 - `scripts/preprocess.py` — build the train/val/test Parquet files
+- `scripts/export_wandb_runs.py` — save every W&B run with a given name and tag (e.g. all hyperopt trials) to a CSV in `reports/`, e.g. `uv run python scripts/export_wandb_runs.py --run MOD-2 --tag hyperopt-trial --out reports/xgboost/mod2_trials.csv`. Takes about 2 minutes
 
 `docs/readme.html` is the BTS field documentation for all 109 columns.
 
