@@ -25,49 +25,49 @@
       "Reporting_Airline"
     ]
   },
-  "train_seconds": 8.5,
+  "train_seconds": 71.8,
   "hyperparameters": {
     "objective": "binary",
     "verbose": -1,
     "subsample_freq": 1,
     "n_estimators": 6000,
     "random_state": 42,
-    "learning_rate": 0.1,
-    "num_leaves": 31,
+    "learning_rate": 0.03730354332157487,
+    "num_leaves": 15,
     "max_depth": -1,
-    "min_child_samples": 20,
-    "subsample": 1.0,
-    "colsample_bytree": 1.0,
-    "reg_lambda": 0.0,
+    "min_child_samples": 692,
+    "subsample": 0.7747352123113382,
+    "colsample_bytree": 0.5522981063265484,
+    "reg_lambda": 0.7912971511403097,
     "reg_alpha": 0.0,
     "min_split_gain": 0.0,
     "max_cat_to_onehot": 4,
-    "max_cat_threshold": 32,
+    "max_cat_threshold": 88,
     "cat_smooth": 10
   },
-  "best_iteration": 59,
-  "rounds_trained": 110,
+  "best_iteration": 947,
+  "rounds_trained": 998,
   "train": {
-    "log_loss": 0.49082569804982834,
-    "pr_auc": 0.4018196595849062,
+    "log_loss": 0.48768724914262657,
+    "pr_auc": 0.4058839881346253,
     "floor": 0.22408645207337763,
-    "pr_auc_over_floor": 1.7931457072350336
+    "pr_auc_over_floor": 1.8112830310764063
   },
   "validation": {
-    "pr_auc": 0.31883626788779873,
-    "log_loss": 0.4761012987481343,
+    "pr_auc": 0.329163587341205,
+    "log_loss": 0.47386376250074386,
     "floor": 0.2019888160810276,
     "f1_floor": 0.33609100746809484,
-    "pr_auc_over_floor": 1.5784847600666065,
-    "threshold": 0.22397199222646377,
-    "precision": 0.2910206694025074,
-    "recall": 0.647294773775928,
-    "f1": 0.40151989341007255,
+    "pr_auc_over_floor": 1.6296129346545671,
+    "threshold": 0.22781136042498876,
+    "precision": 0.29561133183755717,
+    "recall": 0.6498488489913496,
+    "f1": 0.4063686396078904,
     "confusion_matrix": {
-      "tp": 77298,
-      "fp": 188312,
-      "fn": 42119,
-      "tn": 283477
+      "tp": 77603,
+      "fp": 184914,
+      "fn": 41814,
+      "tn": 286875
     }
   }
 }

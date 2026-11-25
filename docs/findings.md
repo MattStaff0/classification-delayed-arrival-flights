@@ -18,10 +18,14 @@ scored yet (EVAL-4).
 | MOD-1 logistic regression | 0.315 | 1.56 | 0.393 | 0.3% |
 | MOD-2 XGBoost, default settings | 0.320 | 1.59 | 0.402 | 12.4% |
 | **MOD-2 XGBoost, tuned** | **0.332** | **1.64** | **0.407** | 8.3% |
+| MOD-3 LightGBM, default settings | 0.319 | 1.58 | 0.402 | 13.6% |
+| MOD-3 LightGBM, tuned | ⟨after search⟩ | ⟨after search⟩ | ⟨after search⟩ | ⟨after search⟩ |
 
 Sources: `reports/logistic_regression/mod1_metrics.json`,
 `git show 5363871:reports/xgboost/mod2_metrics.json` (default run),
-`reports/xgboost/mod2_metrics.json` (tuned). "× no-skill" is
+`reports/xgboost/mod2_metrics.json` (tuned),
+`git show 16fd05d:reports/lightgbm/mod3_metrics.json` (MOD-3 default run),
+`reports/lightgbm/mod3_metrics.json` (MOD-3 tuned). "× no-skill" is
 `pr_auc_over_floor`; the gap is train ÷ validation `pr_auc_over_floor` − 1.
 
 ---
@@ -207,10 +211,182 @@ All in `reports/xgboost/figures/`:
 
 ---
 
-## Experiments on MOD-2
+## MOD-3: LightGBM
 
-Filled in as each one is resolved.
+**Question:** with the same features, encoding, and splits as MOD-2, how does
+LightGBM compare with XGBoost in validation PR-AUC, F1, overfitting, and
+training time? Only the algorithm changes.
 
-- **EXP-7** (early stopping on PR-AUC instead of log loss): ⟨not run yet⟩
-- **EXP-8** (drop `DayofMonth`): ⟨not run yet⟩
-- **EXP-9** (ordinal vs. category time blocks): ⟨not run yet⟩
+### Setup
+
+Same as MOD-2: 13 base features, the same `encode()` (pandas `category`
+columns, validation re-coded to train's category list), train on Jul 2025 – Mar
+2026, score on validation, test not scored, early stopping on validation log
+loss after 50 rounds, tree cap 6,000. What differs:
+
+- **How trees grow.** XGBoost grows each tree level by level, so `max_depth`
+  sets its size. LightGBM grows **leaf by leaf**: it always splits the one leaf
+  that reduces the loss most, so trees can be deep and uneven. Size is set by
+  **`num_leaves`** instead; `max_depth` stays at −1 (no limit). For scale, MOD-2's
+  tuned depth of 5 allows at most 32 leaves, about LightGBM's default of 31.
+- **Minimum leaf size is a row count.** LightGBM's `min_child_samples` counts
+  rows per leaf. XGBoost's `min_child_weight` is a sum of hessians, p(1 − p) per
+  row, about 0.16 at our ~20% late rate, so the two are on different scales.
+- **No L2 penalty by default.** LightGBM's default `reg_lambda` is 0 (XGBoost's
+  is 1). MOD-2's search found that more L2 helped, so the default run starts with
+  none.
+- **Row sampling has to be switched on.** `subsample` does nothing unless
+  `subsample_freq` > 0, so `subsample_freq=1` (resample rows every tree) is a
+  fixed setting. With `subsample=1.0` the default run still uses every row.
+- **Early stopping is a callback.** `lgb.early_stopping(50)` is passed to
+  `fit()` and watches validation only (the training set in the eval list is
+  ignored for stopping; it is there to record train log loss).
+  `lgb.log_evaluation(100)` prints scores every 100 rounds. Eval sets are passed
+  as `eval_X`/`eval_y` because `eval_set` is deprecated in LightGBM 4.7.
+- **Tree counts are stored 0-based, like XGBoost.** LightGBM's
+  `best_iteration_` counts from 1 and XGBoost's from 0, so MOD-3's JSON stores
+  `best_iteration_ − 1`. For both models: trees kept = `best_iteration` + 1, and
+  `rounds_trained` = trees kept + 50 patience rounds. The model itself is not
+  changed; `predict_proba` still uses all kept trees.
+- **Training time** (`train_seconds`) times `fit()` only: not data loading,
+  scoring, or W&B logging. Both libraries use all CPU cores by default and also
+  compute train and validation log loss every round.
+- **Unseen airports (PRE-6, test only).** A LightGBM categorical split lists the
+  categories that go left; **everything else goes right, including missing
+  values**. XGBoost instead learns a default direction for missing values at
+  each split. LightGBM also stores train's category list and silently turns an
+  unseen label into missing, where XGBoost raises an error. Checked on a toy
+  model: a missing value and an unseen label `Z` both got the prediction of the
+  "everything else" side. MOD-3 still uses `encode()`, so both models get
+  identical input.
+
+### Step 1: default settings overfit about as much as XGBoost's
+
+LightGBM's defaults: `learning_rate` 0.1, `num_leaves` 31, `min_child_samples`
+20, `reg_lambda` 0, no row or column sampling, `max_cat_threshold` 32,
+`cat_smooth` 10.
+
+Validation log loss was lowest at **round 60** (0.47610). Training continued
+for the 50-round patience window and stopped after round 110. At round 100,
+train log loss was still falling (0.4908 → 0.4858) while validation had turned
+slightly up (0.47610 → 0.47634): the same overfitting shape as XGBoost's
+default, later because the learning rate is smaller (0.1 vs. 0.3).
+
+```
+train_logloss █▇▇▇▆▅▄▄▄▄▃▃▃▃▃▃▃▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▁▁▁▁▁▁▁▁   falls every round
+  val_logloss █▇▆▄▃▂▂▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁   flattens; the rise after round 60 is too small to show
+```
+
+**Validation log loss below train does not mean "no overfitting".** It is 0.476
+vs. 0.491 only because April has fewer late flights (20.2% vs. 22.4%), the same
+effect as in EVAL-3. The `pr_auc_over_floor` gap, which adjusts for each split's
+late rate, is **13.6%**, slightly above XGBoost's default 12.4%.
+
+| | MOD-1 | MOD-2 default | MOD-3 default |
+|---|---|---|---|
+| Validation PR-AUC | 0.315 | 0.320 | 0.319 |
+| `pr_auc_over_floor` (validation) | 1.562 | 1.585 | 1.578 |
+| F1 | 0.393 | 0.402 | 0.402 |
+| Threshold | 0.233 | 0.222 | 0.224 |
+| Precision / recall | 0.288 / 0.621 | 0.290 / 0.656 | 0.291 / 0.647 |
+| `pr_auc_over_floor` train vs. validation | 1.567 / 1.562 | 1.782 / 1.585 | 1.793 / 1.578 |
+| Gap | 0.3% | 12.4% | 13.6% |
+| Trees kept | — | 18 | 60 |
+| Training time | — | not recorded | 8.5 s (110 rounds, 0.077 s/round) |
+
+Source: `git show 16fd05d:reports/lightgbm/mod3_metrics.json`, W&B run
+`xr932vla`.
+
+- **With defaults, the two libraries are tied** on PR-AUC (0.319 vs. 0.320) and
+  F1 (0.402 for both).
+- **As with MOD-2, the gap is not caused by too many trees.** Early stopping
+  already kept only the best 60. The fix has to come from the tree settings:
+  smaller trees, larger minimum leaf size, more L2. That is what the search
+  covers.
+
+### Step 2: hyperparameter search
+
+Hyperopt TPE, 90 trials (the same budget as MOD-2), maximizing validation
+PR-AUC. Each trial is logged to W&B as `MOD-3` with tag `hyperopt-trial`, and
+all trials are exported to `reports/lightgbm/mod3_trials.csv`. Same 7 settings
+as MOD-2, using LightGBM's equivalents and the same ranges where they exist:
+
+| Hyperparameter | Range searched | Best trial (#⟨n⟩) | Default |
+|---|---|---|---|
+| `learning_rate` | 0.02 – 0.3 (log) | ⟨⟩ | 0.1 |
+| `num_leaves` (replaces `max_depth`) | 15 – 255 (log, integer) | ⟨⟩ | 31 |
+| `min_child_samples` (replaces `min_child_weight`) | 20 – 2,000 (log, integer) | ⟨⟩ | 20 |
+| `subsample` | 0.5 – 1.0 | ⟨⟩ | 1.0 |
+| `colsample_bytree` | 0.5 – 1.0 | ⟨⟩ | 1.0 |
+| `reg_lambda` | 0.1 – 20 (log) | ⟨⟩ | 0 |
+| `max_cat_threshold` | 8 – 128 (step 8) | ⟨⟩ | 32 |
+
+`max_depth` (−1) and `cat_smooth` (10) stay at their defaults.
+
+**Why a log scale for `num_leaves` and `min_child_samples`:** their effect is
+relative. Going from 15 to 30 leaves changes the model far more than going from
+225 to 240. TPE starts with 20 random trials; on a uniform scale only about 6%
+of `num_leaves` draws fall in 15–30 (the size of MOD-2's best trees), and on a
+log scale about 25% do (checked on 2,000 draws).
+
+⟨After the search: what separated the 10 best trials from the 10 worst
+(medians, from `mod3_trials.csv`), when the best score was reached (plateau?),
+how many trials beat MOD-1 / MOD-3 default / MOD-2 tuned, the largest tree
+count (did any trial hit the 6,000 cap?).⟩
+
+### Step 3: the tuned model vs. XGBoost
+
+| | MOD-2 tuned | MOD-3 default | MOD-3 tuned |
+|---|---|---|---|
+| Validation PR-AUC | 0.332 | 0.319 | ⟨⟩ |
+| `pr_auc_over_floor` (validation) | 1.642 | 1.578 | ⟨⟩ |
+| F1 | 0.407 | 0.402 | ⟨⟩ |
+| Threshold | 0.229 | 0.224 | ⟨⟩ |
+| Precision / recall | 0.297 / 0.647 | 0.291 / 0.647 | ⟨⟩ |
+| `pr_auc_over_floor` train vs. validation | 1.778 / 1.642 | 1.793 / 1.578 | ⟨⟩ |
+| Gap | 8.3% | 13.6% | ⟨⟩ |
+| Trees kept | 345 | 60 | ⟨⟩ |
+| Training time | ⟨XGBoost timing re-run⟩ | 8.5 s | ⟨⟩ |
+| Seconds per round | ⟨⟩ | 0.077 | ⟨⟩ |
+
+⟨After the search: did tuning help as much as for XGBoost; did the gap shrink
+because validation improved or train got worse; which settings mattered; the
+verdict on score and speed, and which model the experiments (EXP-2, EXP-4) and
+EVAL-5 use.⟩
+
+### Caveats
+
+- Hyperparameters, early stopping, and the threshold were all chosen on
+  validation, so validation scores are optimistic. The test split (EVAL-4) is
+  the unbiased comparison.
+- Training times come from one machine, using all cores, with train and
+  validation log loss computed every round for both models. Compare seconds per
+  round as well as total time, since the two models stop at different rounds.
+- MOD-2 has no timed run yet; the speed comparison needs MOD-2's final
+  configuration re-run with the same timer.
+
+### Figures
+
+All in `reports/lightgbm/figures/`:
+
+- `mod3_default_train_logloss.png`, `mod3_default_val_logloss.png`: the default
+  run's curves (W&B panels). As with MOD-2, validation sits below train only
+  because April has fewer late flights: read the shape, not the level.
+- ⟨After the search: `mod3_val_logloss_default_vs_tuned.png` (main slide),
+  `mod3_parallel_coordinates.png`, `mod3_tuned_train_logloss.png`,
+  `mod3_tuned_val_logloss.png`, and `mod3_pr_curve.png` / `mod3_thresholds.png`
+  for the tuned model. The committed `mod3_pr_curve.png` / `mod3_thresholds.png`
+  are from the default run and will be overwritten by the final run.⟩
+
+---
+
+## Experiments
+
+Filled in as each one is resolved. In scope for the course: **EXP-4**
+(historical late-rate feature, on logistic regression and the best tree model)
+and **EXP-2** (full-year training data, on the best tree model with its tuned
+settings fixed). EXP-7, EXP-8, and EXP-9 (the single-run XGBoost follow-ups) are
+deferred to the Future work section of `OPEN-ISSUES.md`.
+
+- **EXP-4** (historical late-rate feature): ⟨not run yet⟩
+- **EXP-2** (full-year training data): ⟨not run yet⟩
