@@ -217,24 +217,16 @@ def train_and_evaluate(hyperparams, data, tags, save, params_source=None):
     return validation_metrics["pr_auc"]
 
 def load_params(path, overrides):
-    # accepts a metrics JSON (uses its "hyperparameters" block) or a plain dict of hyperparameters
     res = json.loads(Path(path).read_text())
     all_params = res.get("hyperparameters", res)
 
-    # fixed params only ever come from the code; build_model already passes FIXED_PARAMS,
-    # so leaving them in would pass e.g. "objective" twice and raise a TypeError
     params = {hyperparam_label : all_params[hyperparam_label] for hyperparam_label in all_params if hyperparam_label not in FIXED_PARAMS}
 
-    # --set KEY=VALUE overrides for this run only, e.g. ["num_leaves=7"]
     for override in overrides:
         key, value = override.split("=", 1)
-        # catch typos (e.g. num_leaf=7) instead of letting LightGBM silently ignore an unknown setting
         if key not in DEFAULT_HYPERPARAMS_DICT:
             raise ValueError(f"--set {key}: not a tunable hyperparameter, expected one of {sorted(DEFAULT_HYPERPARAMS_DICT)}")
-        # json.loads turns "7" into 7 and "0.05" into 0.05
         params[key] = json.loads(value)
-
-    # to_params fills any missing setting from the defaults and casts the integer settings
     return to_params(params)
 
 def to_params(trial):
