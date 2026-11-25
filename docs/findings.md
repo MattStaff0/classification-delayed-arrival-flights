@@ -6,8 +6,9 @@ short record, this is the explanation. Every number here comes from a committed
 file or the W&B project `flight-classifier` (team
 `mattstaff0-texas-christian-university`); the source is named under each table.
 
-All models use the same 13 base features, train on Jul 2025 – Mar 2026, and are
-scored on validation (Apr 2026). The test split (May–Jun 2026) has not been
+All models use the same 13 base features, train on Jul 2025 – Mar 2026 (except
+EXP-2, which tests a longer training window), and are scored on validation
+(Apr 2026). The test split (May–Jun 2026) has not been
 scored yet (EVAL-4).
 
 ## Headline so far
@@ -548,7 +549,8 @@ deferred to the Future work section of `OPEN-ISSUES.md`.
 
 - **EXP-4** (historical late-rate feature): small gain for logistic regression,
   none for XGBoost. Not adopted. See below.
-- **EXP-2** (full-year training data): ⟨not run yet⟩
+- **EXP-2** (full-year training data): setup and data checks done, runs
+  pending. See below.
 
 ### EXP-4: historical late rate (`Origin` + `DepTimeBlk`)
 
@@ -635,9 +637,14 @@ not matter). Logistic regression: added to `SCALED_COLUMNS` (`StandardScaler`
 fitted on train's out-of-fold values). Unscaled, the rate varies by only about
 ±0.09, so it would need a large coefficient, which the L2 penalty shrinks; scaling
 puts it on the same footing as `Distance`. The rate is computed before
-`encode()`, on the raw columns, because `encode()` turns validation categories
-unseen in train into missing values (none in validation, but test has CSG and
-LNS).
+`encode()`, on the raw columns, so every key is looked up by its raw value and a
+key with no training flights gets *p* from the formula, whatever the encoding
+does with it. (XGBoost's `encode()` does not turn test's unseen airports CSG and
+LNS into missing values: `preprocess.py` builds the `Origin` category list from all 12
+months, so they keep a code with no training rows. Only the city market IDs,
+which `encode()` makes categories from train alone, become missing. Found in
+EXP-2; validation has no unseen values either way, so EXP-4's results are
+unaffected.)
 
 #### Results
 
@@ -707,3 +714,175 @@ rate), which needs the same out-of-fold and smoothing logic.
   `train_logloss` / `val_logloss` history to overlay with MOD-2's final run.
 - Suggested slide: the Results table's PR-AUC and gap rows, titled "Late rate
   helps the linear model, not the trees".
+
+### EXP-2: full-year training data (Jul 2024 – Mar 2026)
+
+**Question:** does training XGBoost with MOD-2's tuned settings fixed on
+Jul 2024 – Mar 2026 (21 months) instead of Jul 2025 – Mar 2026 (9 months)
+improve validation PR-AUC and F1? Only the training window changes.
+
+#### Setup
+
+**What changes.** Train gains Jul 2024 – Jun 2025: 6,947,604 rows, so train
+grows from 5,105,534 to 12,053,138 rows (2.36×). That changes two things at
+once: **volume** (more rows) and **seasonal coverage** (train now contains
+April–June, the months of validation and test, which the current train never
+sees). It also adds older data, whose schedules and carriers differ more from
+2026's, which could pull the model away from April 2026. This run measures the
+combined effect. A flat result means "no net gain", not "no effect": a gain
+from volume or season could be cancelled by a loss from older data.
+Separating the two is deferred unless the full-year run improves: run B adds
+only Apr–Jun 2025 (1,774,776 rows) to the current train; run C adds a
+non-spring quarter of about the same size. B vs. C then differs in season at
+about equal volume. B alone cannot separate them, because it also adds rows.
+
+**What stays fixed.** Validation (Apr 2026, 591,206 rows) and test
+(May–Jun 2026, 1,199,540 rows) are the same rows; the instance filter
+(completed, non-diverted, labeled flights) and the cleaning rule
+(`CRSElapsedTime > 0`); the split dates; the 13 base features (no `Month`, no
+`late_rate`); `encode()`; the hyperparameters
+(`--params reports/xgboost/mod2_metrics.json`, no `--set`); the early-stopping
+**rule** (validation log loss, patience 50, cap 6,000 trees); and the threshold
+**rule** (max F1 on validation). The tree count and the threshold value are
+chosen again by those rules: each model stops where its own validation curve
+flattens and is scored at its own best cutoff. Forcing EXP-2 to MOD-2's 345
+trees or 0.229 threshold would handicap it. Its probabilities follow a
+different train late rate (below), so a fixed cutoff would move precision and
+recall for reasons unrelated to how well it ranks flights. The threshold does
+not affect PR-AUC, which sweeps every cutoff.
+
+**Compared against** `reports/xgboost/mod2_metrics.json` (W&B run `qy84vjlu`,
+the only `MOD-2` run tagged `final`), on validation PR-AUC, F1,
+`pr_auc_over_floor`, the train vs. validation gap, trees kept, and
+`train_seconds` (median of 3 alternating runs, as in MOD-3, plus seconds per
+round, because more rows and more trees both add time). The gap uses
+`pr_auc_over_floor`, not raw PR-AUC, because the train floor drops from 0.2241
+to 0.2146 (below). Validation's floor is unchanged (0.202), so validation
+PR-AUC compares directly. Before the real run, MOD-2 is rerun with the new code
+and no new flags; it must reproduce the committed JSON exactly (best iteration
+344, same PR-AUC to every digit), which shows the plumbing did not change the
+baseline.
+
+**Same settings on more data.** Most of MOD-2's settings mean the same thing
+at any train size: `learning_rate`, `subsample`, and `colsample_bytree` are
+rates or fractions; `max_depth` (5) and `max_cat_threshold` (120) count levels
+and categories, not rows; early stopping counts rounds. Two are absolute
+amounts that weaken relative to the data as train grows:
+
+- `min_child_weight` (26) is a minimum **sum of hessians** *p*(1 − *p*) per
+  leaf: about 151 rows at *p* ≈ 0.22, about 550 rows in a leaf predicting 5%
+  late. In the saved MOD-2 model (345 trees, 10,972 leaves) it binds on a small
+  tail: minimum leaf cover exactly 26.0, 1st percentile 33.9, median 4,954;
+  2.6% of leaves under 52 and 11.0% under 260. These are likely rare
+  categories. With about 2.4× more rows, a rare airport clears the limit more
+  easily, so the constraint is looser in effect.
+- `reg_lambda` (7.47) shrinks each leaf value *w* = −*G* / (*H* + λ) by
+  λ / (*H* + λ): 22% at *H* = 26, 11% at *H* = 60, 0.15% at the median leaf. It
+  matters only in the same small leaves, and its pull halves when a leaf's rows
+  double.
+
+So the same settings regularize the full-year model less. That is how a fixed
+penalty should behave when there is more evidence (like the α = 20 pretend
+flights in EXP-4), so it is part of what more data buys, not a flaw in the
+comparison. Whether that widens the gap (more category-specific leaves) or
+narrows it (less noisy leaf values) is measured, not assumed: the share of
+leaves under 52 is compared between the two models. The settings were tuned for
+5.1M rows and are not re-tuned (Caveats). More trees are expected: with more
+data, validation log loss should keep improving for longer.
+
+**The new data.** Downloaded with
+`scripts/fetch_bts_data.py --start 2024-07 --end 2025-06 --out data/raw_2024`,
+a separate folder, so `data/raw` still holds the 12 files `preprocess.py`
+asserts. Checked with `notebooks/EXP_2_Check_new_months.py` (read-only), which
+applies the same filter and cleaning rule as `preprocess.py`:
+
+- **Format:** all 12 files have the same 110-column header as `data/raw`, and
+  the 20 `COLS` read with the same dtypes.
+- **Quality:** after the filter, 0 nulls, 0 rows with `CRSElapsedTime ≤ 0`, 0
+  rows breaking any PRE-4 out-of-range rule, 0 duplicates on the PRE-4 flight
+  key, 0 rows dated outside their file's month. The existing cleaning rule needs
+  no change.
+- **Rows and late rate per month** (after filter and cleaning):
+
+| Month | 2024-07 | 08 | 09 | 10 | 11 | 12 | 2025-01 | 02 | 03 | 04 | 05 | 06 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Rows (k) | 614 | 604 | 578 | 609 | 572 | 585 | 522 | 496 | 592 | 578 | 598 | 599 |
+| Late rate | **.296** | .235 | .155 | **.132** | .147 | .212 | .188 | .208 | .196 | .197 | .236 | .283 |
+| Cancelled (k) | **18.4** | 12.7 | 3.5 | 6.3 | 2.6 | 4.2 | 16.3 | 7.4 | 6.9 | 4.9 | 6.3 | 9.7 |
+
+| | Rows | Late rate (floor) |
+|---|---|---|
+| Current train (Jul 2025 – Mar 2026) | 5,105,534 | 0.2241 |
+| New months (Jul 2024 – Jun 2025) | 6,947,604 | 0.2076 |
+| **Full-year train (Jul 2024 – Mar 2026)** | **12,053,138** | **0.2146** |
+| Apr–Jun 2025 only (run B) | 1,774,776 | 0.2389 |
+
+- Row counts follow the airline schedule: largest in summer (Jul 2024), smallest
+  in Jan–Feb 2025 (February has 28 days). Holiday months are not the largest.
+- The new months are **less** late overall (20.8% vs. 22.4%). July 2024 is the
+  outlier (29.6% late and the most cancellations of any month), and Sep–Nov 2024
+  were unusually on time (13–15%). Cancelled flights are removed by the instance
+  filter, so the worst operational days count less in train than they were.
+- April 2025 (19.7%) is close to validation's April 2026 (20.2%).
+
+**New categories in train.** Category lists come from two places. `preprocess.py`
+(`convert_types`) makes `Reporting_Airline`, `Origin`, `Dest`, the states, and the
+time blocks categories **before** splitting, so their category lists hold every
+value in all the months it loaded, including values that occur only in
+validation or test. `encode()` then gives validation the train column's list, so
+for these columns nothing becomes missing. `OriginCityMarketID` and
+`DestCityMarketID` are plain integers in the parquet files and become
+categories in `encode()` from train's values only, so a validation or test
+value absent from train becomes missing. Adding rows to train only adds values;
+nothing is dropped. The new months add these values the current train has no
+rows for:
+
+| Value | Rows in new months | Months present | In validation / test? |
+|---|---|---|---|
+| Airline `9E` | 97,482 | Jul–Dec 2024 only | No |
+| Airports ALW, ITH, VLD (and their city markets) | ~960 | mostly 2024 | No |
+| Airport CSG (city market 31150) | 476 | 2024 | **Yes, test** (PRE-6) |
+| Airport LNS (city market 33032) | 0 | — | Test only, still unseen |
+
+No new states or time blocks.
+
+- **`9E` rows are kept.** Dropping them would add a filter MOD-2 does not have, a
+  second change in a one-change experiment. The current train already has the
+  same situation: airline `HA` has 39,849 rows in Jul–Dec 2025 and none from
+  Jan 2026, so it is absent from validation and test, as is `9E`. The model can
+  spend splits on these airlines that never pay off on validation; their rows
+  still teach airport, route, and time-of-day patterns.
+- **EVAL-4 side effect.** For MOD-2, test's 51 CSG/LNS rows (`Origin`) get valid
+  `Origin` codes for categories with **no training rows** (the categories exist
+  because `convert_types` saw the test months), while their
+  `OriginCityMarketID` becomes missing (checked: 0 of 51 missing in `Origin`, 51
+  of 51 in `OriginCityMarketID`). For EXP-2, CSG and its city market 31150 have
+  476 training rows; LNS stays without training rows. How XGBoost routes a
+  category that has a code but no training rows is not checked yet; EVAL-4
+  should test it on a toy model, as MOD-3 did for LightGBM.
+- **The processed files differ only in category lists.** `data/processed_fullyear`
+  validation and test have the same rows and values as `data/processed`
+  (compared column by column), but `Reporting_Airline`, `Origin`, and `Dest`
+  list 4 more categories (9E, ALW, ITH, VLD), because `convert_types` saw the
+  2024 months. `DataFrame.equals` is therefore False. It does not affect
+  scoring: `encode()` replaces validation's list with train's.
+- Side note for EVAL-4: `pd.Categorical(values, categories=...)` with values
+  outside the list raises a pandas deprecation warning ("will raise in a future
+  version"). For `Origin`/`Dest` this never happens (see above), but it does for
+  test's city markets 31150 and 33032. It works on the current pandas; an
+  upgrade before EVAL-4 would break it.
+
+#### Results
+
+⟨pending: runs not done yet⟩
+
+#### Caveats
+
+- Hyperparameters were tuned on the 9-month train and not re-tuned; the best
+  values for 12M rows may differ (e.g. deeper trees). EXP-2 measures the data
+  change with the settings held fixed, not the best model the full year allows.
+- Early stopping and the threshold use validation in both runs, so both
+  validation scores are optimistic by the same mechanism. Test (EVAL-4) is the
+  unbiased comparison.
+- One combined run: volume, seasonal coverage, and data age change together
+  (see "What changes").

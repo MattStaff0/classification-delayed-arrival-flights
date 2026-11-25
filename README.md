@@ -55,13 +55,30 @@ skipped. Use `--start YYYY-MM --end YYYY-MM` for a different range (e.g.
 ## Build the processed data
 
 ```bash
-uv run scripts/preprocess.py
+uv run scripts/preprocess.py                      # base: data/raw -> data/processed
+uv run scripts/preprocess.py --dataset fullyear   # EXP-2: data/raw + data/raw_2024 -> data/processed_fullyear
 ```
 
 Run from the project root. Filters to completed flights, drops the 3 bad rows,
-splits by date, and writes `data/processed/{train,val,test}.parquet`. Stops with
-an error if any check fails; re-running overwrites the files. See
+splits by date, and writes `{train,val,test}.parquet`. Stops with an error if
+any check fails; re-running overwrites that dataset's files only. See
 `docs/architecture/data-dictionary.md` (Processed Files) for the contents.
+
+- **`--dataset`** picks a row of the `DATASETS` table at the top of
+  `scripts/preprocess.py`: which raw files to read (folder + file pattern), where
+  to write, and the file count and train row count the run must find. The
+  default, `base`, is the project's dataset (MOD-1/2/3, EXP-4) and reproduces
+  `data/processed` exactly.
+- **`fullyear`** (EXP-2) adds Jul 2024 – Jun 2025 to train: 24 files, 12,053,138
+  train rows. Download the extra months first:
+  `uv run scripts/fetch_bts_data.py --start 2024-07 --end 2025-06 --out data/raw_2024`,
+  then check them with `uv run python notebooks/EXP_2_Check_new_months.py`
+  (read-only).
+- **Every dataset asserts the same validation and test sizes** (591,206 /
+  1,199,540), so a dataset that changed them fails before writing anything. Each
+  dataset has its own output folder, so a new one can never overwrite
+  `data/processed`. To add a dataset (e.g. only Apr–Jun 2025 for EXP-2's
+  follow-up), add a row with a file pattern such as `2025-0[4-6]-flight-data.csv`.
 
 ## Scripts
 
