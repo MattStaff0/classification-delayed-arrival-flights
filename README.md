@@ -84,6 +84,7 @@ Run from the project root. On macOS, install `libomp` first (see Setup).
 ```bash
 uv run python -m src.ensemble.xgboost_model             # one run with the default hyperparameters
 uv run python -m src.ensemble.xgboost_model --tune 90   # hyperopt search: 90 trials, then retrain the best
+uv run python -m src.ensemble.xgboost_model --params reports/xgboost/mod2_metrics.json   # retrain the final tuned model
 ```
 
 - **Default run:** trains once with `DEFAULT_HYPERPARAMS_DICT` (XGBoost's
@@ -103,12 +104,77 @@ uv run python -m src.ensemble.xgboost_model --tune 90   # hyperopt search: 90 tr
   do not switch branches: the final step writes its outputs into whatever
   branch is checked out when it finishes. Avoid training another model at the
   same time; the search uses every CPU core.
-- **Outputs** (default run, or the `final` run after `--tune`; both overwrite
-  the previous files):
-  - `reports/xgboost/mod2_metrics.json`: run info, every hyperparameter used, `best_iteration`, `train` and `validation` blocks
+- **`--params PATH`:** see [Running a saved configuration](#running-a-saved-configuration---params---set).
+- **Outputs** (default run, the `final` run after `--tune`, or a `--params`
+  run; all overwrite the previous files):
+  - `reports/xgboost/mod2_metrics.json`: run info, `train_seconds`, every hyperparameter used, `best_iteration`, `train` and `validation` blocks
   - `reports/xgboost/figures/mod2_pr_curve.png`, `mod2_thresholds.png`
   - `models/mod2_xgboost.joblib`: the fitted model and its validation threshold
 - Prefix any command with `WANDB_MODE=disabled` to run without W&B.
+
+## Running LightGBM (MOD-3)
+
+Run from the project root. Same 13 features, encoding, and splits as MOD-2, so
+only the algorithm changes. Results and the comparison with XGBoost:
+`docs/findings.md` (MOD-3).
+
+```bash
+uv run python -m src.ensemble.lightgbm_model             # one run with LightGBM's default hyperparameters
+uv run python -m src.ensemble.lightgbm_model --tune 90   # hyperopt search: 90 trials, then retrain the best
+uv run python -m src.ensemble.lightgbm_model --params reports/lightgbm/mod3_metrics.json   # retrain the final model (7 leaves)
+```
+
+- **Default run:** trains once with `DEFAULT_HYPERPARAMS_DICT` (LightGBM's
+  defaults). Takes about 10 seconds.
+- **`--tune N`:** same as MOD-2, over LightGBM's equivalents: `learning_rate`,
+  `num_leaves` (15–255, log scale), `min_child_samples` (20–2,000, log scale),
+  `subsample`, `colsample_bytree`, `reg_lambda`, `max_cat_threshold`. Trials are
+  logged as `MOD-3` runs tagged `hyperopt-trial`. 90 trials took about 1 hour 20
+  minutes. The same long-run advice as MOD-2 applies (`caffeinate`, no branch
+  switching, no other training at the same time).
+- **Final model:** the search's best trial (26) used the smallest `num_leaves`
+  allowed (15), so a boundary check retrained it with 4, 7, and 10 leaves; 7
+  scored best. The final model is trial 26 with `num_leaves` 7, trained with
+  `--params ... --set num_leaves=7`. `mod3_metrics.json` now stores 7, so
+  `--params reports/lightgbm/mod3_metrics.json` alone reproduces it (best
+  iteration 2,493, validation PR-AUC 0.331). Takes about 2–3 minutes.
+- **Outputs:**
+  - `reports/lightgbm/mod3_metrics.json`: run info, `train_seconds`, every hyperparameter used, `best_iteration` (stored 0-based like XGBoost's: trees kept = `best_iteration` + 1), `rounds_trained`, `train` and `validation` blocks
+  - `reports/lightgbm/figures/mod3_pr_curve.png`, `mod3_thresholds.png`
+  - `models/mod3_lightgbm.joblib`: the fitted model and its validation threshold
+- Export the trials: `uv run python scripts/export_wandb_runs.py --run MOD-3 --tag hyperopt-trial --out reports/lightgbm/mod3_trials.csv`
+
+## Running a saved configuration (`--params`, `--set`)
+
+Both tree models (`xgboost_model`, `lightgbm_model`) can train and save once
+with hyperparameters read from a JSON file, instead of the defaults or a search.
+Use it to reproduce a final model, or to run the tuned model with one setting
+changed (experiments keep the tuned settings fixed).
+
+```bash
+# reproduce the final model from its metrics JSON
+uv run python -m src.ensemble.lightgbm_model --params reports/lightgbm/mod3_metrics.json
+
+# same, with one setting changed for this run only (repeat --set for more)
+uv run python -m src.ensemble.lightgbm_model --params reports/lightgbm/mod3_metrics.json --set num_leaves=7
+```
+
+- **`--params PATH`:** a metrics JSON (its `hyperparameters` block is used) or a
+  plain JSON object of hyperparameters. Fixed settings (`objective`,
+  `n_estimators`, `random_state`, early stopping, ...) always come from the
+  code, never from the file. Any tunable setting missing from the file falls back
+  to the script's defaults.
+- **`--set KEY=VALUE`:** overrides one tunable hyperparameter for this run only;
+  the file is not changed. An unknown name (e.g. a typo like `num_leaf`) is an
+  error rather than being silently ignored. Requires `--params`; cannot be
+  combined with `--tune`.
+- **Outputs:** the run is saved like a final model (metrics JSON, figures,
+  model file) and logged to W&B tagged `final`. The file and overrides used are
+  recorded as `params_source` in the metrics JSON and the W&B config.
+- **Reproducing without changing anything:** each `--params` run rewrites the
+  metrics JSON (same scores, new `date` and `train_seconds`). To check a result
+  without logging a new W&B run or changing committed files, run with
+  `WANDB_MODE=disabled` and then `git restore reports/`.
 
 ## Tracking runs with Weights & Biases
 
@@ -167,8 +233,12 @@ log_to_wandb(results=results,
   rate: for MOD-1, validation log loss (0.479) is lower than train (0.504) only
   because April has fewer late flights.
 - **Tags** are the model and the feature set, in kebab-case, spelled the same
-  in every script (e.g. `logistic-regression`, `xgboost`, `13-baseline-features`,
-  `late-rate`).
+  in every script (e.g. `logistic-regression`, `xgboost`, `lightgbm`,
+  `13-baseline-features`, `late-rate`), plus the run type: `default`,
+  `hyperopt-trial`, `final`, or `boundary-check`. A `final` run that was
+  replaced keeps its tags and gets `superseded` added (never delete it: its
+  metrics JSON is in git history), so filter by `final` and exclude
+  `superseded` to see the current final models.
 - **Figure keys** are always `pr_curve` and `thresholds`, so plots from
   different models share a panel.
 - **`history`** (optional) is a list of dicts, one per training round, e.g.
