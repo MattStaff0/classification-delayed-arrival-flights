@@ -144,6 +144,31 @@ uv run python -m src.ensemble.lightgbm_model --params reports/lightgbm/mod3_metr
   - `models/mod3_lightgbm.joblib`: the fitted model and its validation threshold
 - Export the trials: `uv run python scripts/export_wandb_runs.py --run MOD-3 --tag hyperopt-trial --out reports/lightgbm/mod3_trials.csv`
 
+## Running EXP-4 (historical late rate, `--late-rate`)
+
+Run from the project root. Adds one feature, `late_rate` (the share of late
+flights for the flight's `Origin` + `DepTimeBlk`, computed from train only;
+out-of-fold on training rows, smoothed with α = 20), to the 13 base features.
+Everything else stays as in MOD-1 / MOD-2. Code: `src/features/late_rate.py`.
+Results: `docs/findings.md` (EXP-4).
+
+```bash
+uv run python -m src.baseline.logistic_regression --late-rate
+uv run python -m src.ensemble.xgboost_model --params reports/xgboost/mod2_metrics.json --late-rate
+```
+
+- **XGBoost requires `--params`:** the experiment keeps MOD-2's tuned settings
+  fixed, so `--late-rate` alone or with `--tune` is an error. Logistic
+  regression has no tuned settings, so it needs no other flag.
+- **Without `--late-rate`** both scripts behave exactly as before (checked:
+  MOD-1 and MOD-2 reproduce their committed metrics).
+- **Outputs** (never the `mod1_*` / `mod2_*` files):
+  - `reports/logistic_regression/exp4_metrics.json`, `figures/exp4_pr_curve.png`, `figures/exp4_thresholds.png`, `models/exp4_logreg.joblib`
+  - `reports/xgboost/exp4_metrics.json`, `figures/exp4_pr_curve.png`, `figures/exp4_thresholds.png`, `models/exp4_xgboost.joblib`
+- **W&B:** runs `EXP-4-logistic-regression` and `EXP-4-xgboost`, tagged with
+  the model and `13-plus-late-rate` (XGBoost also `final`). Each takes under a
+  minute.
+
 ## Running a saved configuration (`--params`, `--set`)
 
 Both tree models (`xgboost_model`, `lightgbm_model`) can train and save once
@@ -219,7 +244,9 @@ log_to_wandb(results=results,
              tags=[MODEL_TAG, FEATURE_TAG])
 ```
 
-- **Run name** comes from `results["run"]`: the issue ID (`MOD-2`, `EXP-4`, ...).
+- **Run name** comes from `results["run"]`: the issue ID (`MOD-1`, `MOD-2`, ...). An experiment run on more than one model
+  adds the model so the runs can be told apart (`EXP-4-xgboost`,
+  `EXP-4-logistic-regression`); W&B filters match the name exactly.
 - **Config** is every key of `results` except `train` and `validation`. Put
   hyperparameters and run info in `results`.
 - **Summary** is the `train` and `validation` blocks, nested, so W&B shows
@@ -234,7 +261,7 @@ log_to_wandb(results=results,
   because April has fewer late flights.
 - **Tags** are the model and the feature set, in kebab-case, spelled the same
   in every script (e.g. `logistic-regression`, `xgboost`, `lightgbm`,
-  `13-baseline-features`, `late-rate`), plus the run type: `default`,
+  `13-baseline-features`, `13-plus-late-rate`), plus the run type: `default`,
   `hyperopt-trial`, `final`, or `boundary-check`. A `final` run that was
   replaced keeps its tags and gets `superseded` added (never delete it: its
   metrics JSON is in git history), so filter by `final` and exclude

@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 import xgboost as xgb
 from src.evaluation import evaluate, print_report, plot_pr_curve, plot_thresholds, save_model, validation_summary, save_json, log_to_wandb, compute_loss
+from src.features.late_rate import add_late_rate_features
 import argparse
 import time
 import json
@@ -23,6 +24,12 @@ FIGURES_PATH = "reports/xgboost/figures"
 METRICS_PATH = "reports/xgboost/mod2_metrics.json"
 WANDB_MODEL_TAG = "xgboost"
 WANDB_FEATURE_TAG = "13-baseline-features"
+
+# run name, feature tag, and output files for each kind of run, so an EXP-4 run never overwrites MOD-2's files
+RUNS = {
+    "MOD-2": {"feature_tag": WANDB_FEATURE_TAG, "metrics": METRICS_PATH, "model": MODEL_PATH, "prefix": "mod2"},
+    "EXP-4-xgboost": {"feature_tag": "13-plus-late-rate", "metrics": "reports/xgboost/exp4_metrics.json", "model": "models/exp4_xgboost.joblib", "prefix": "exp4"},
+}
 
 # training setup
 RANDOM_STATE = 42
@@ -74,10 +81,10 @@ def split_target_from_data(training, validation):
     validation_y = validation.pop(TARGET)
     return training, training_y, validation, validation_y
 
-def encode(train, val):
-    # grab only the 13 features
-    train = train[FEATURES]
-    val = val[FEATURES]
+def encode(train, val, features):
+    # keep only the model's features (13 base, plus late_rate for EXP-4)
+    train = train[features]
+    val = val[features]
 
     # make the marketID's into categories
     train["OriginCityMarketID"] = train["OriginCityMarketID"].astype("category")
@@ -88,17 +95,28 @@ def encode(train, val):
 
     return train, val
 
-def prepare_data(): 
+def prepare_data(late_rate=False): 
     # load the splits
     training, validation = load_splits()
 
     # split the target off the datasets
     training, training_y, validation, validation_y = split_target_from_data(training=training, validation=validation)
 
+    # the late rate experiment the column needs to be added
+    if late_rate:
+        training["late_rate"], validation["late_rate"] = add_late_rate_features(training=training, training_y=training_y, validation=validation)
+
+    # add the late rate feature if late_rate is true else just pass in the 13 normal features
+    features = FEATURES if not late_rate else FEATURES + ["late_rate"]
+
     # encode the columns to categories for xgboost
-    training, validation = encode(train=training, val=validation)
+    training, validation = encode(train=training, val=validation, features=features)
 
     return training, training_y, validation, validation_y
+
+def run_name(training):
+    # the data decides which run this is: the late_rate column only exists for EXP-4
+    return "EXP-4-xgboost" if "late_rate" in training.columns else "MOD-2"
 
 def build_history(model):
     # weights and bias history
@@ -110,13 +128,15 @@ def build_history(model):
     return history
 
 def build_results(model, training, training_metrics, validation, validation_metrics, validation_floor, history, train_seconds, hyperparams, params_source=None):
+    # record what the model actually trained on, read from the data itself
+    numeric_cols = NUMERIC_COLUMNS + ["late_rate"] if "late_rate" in training.columns else NUMERIC_COLUMNS
     results = {
-      "run": "MOD-2",
+      "run": run_name(training),
       "date": date.today().isoformat(),
       "xgb_version": xgb.__version__,
       "train_rows": len(training),
       "validation_rows": len(validation),
-      "features": {"ordinal": ORDINAL_COLUMNS, "numerical": NUMERIC_COLUMNS, "category": CATEGORICAL_COLUMNS},
+      "features": {"ordinal": ORDINAL_COLUMNS, "numerical": numeric_cols, "category": CATEGORICAL_COLUMNS},
       "train_seconds": train_seconds,
       "hyperparameters": {
           **FIXED_PARAMS,
@@ -136,20 +156,23 @@ def build_results(model, training, training_metrics, validation, validation_metr
     return results
 
 def save_outputs(results, validation_metrics, validation_floor, model):
-    # create the figures 
+    # file names for this kind of run (MOD-2 or EXP-4)
+    outputs = RUNS[results["run"]]
+
+    # create the figures
     figure_directory = Path(FIGURES_PATH)
     figure_directory.mkdir(parents=True, exist_ok=True)
-    
-    pr_curve_path = figure_directory / "mod2_pr_curve.png"
-    thresholds_path = figure_directory / "mod2_thresholds.png"
+
+    pr_curve_path = figure_directory / f"{outputs['prefix']}_pr_curve.png"
+    thresholds_path = figure_directory / f"{outputs['prefix']}_thresholds.png"
     plot_pr_curve(validation_metrics, validation_floor, pr_curve_path, "XGBoost")
     plot_thresholds(validation_metrics, thresholds_path)
-    
-    # save the model 
-    save_model(model_path_raw=MODEL_PATH, metrics=validation_metrics, pipeline=model)
-    
+
+    # save the model
+    save_model(model_path_raw=outputs["model"], metrics=validation_metrics, pipeline=model)
+
     # save the json
-    save_json(METRICS_PATH, results)
+    save_json(outputs["metrics"], results)
 
     return {
         "pr_curve": pr_curve_path,
@@ -272,18 +295,24 @@ def main():
     mode.add_argument("--tune", type=int, default=0)
     mode.add_argument("--params", type=Path, default=None, help="train and save once with the hyperparameters in this JSON file")
     parser.add_argument("--set", dest="overrides", action="append", default=[], metavar="KEY=VALUE", help="override one hyperparameter from --params for this run (repeatable)")
+    parser.add_argument("--late-rate", action="store_true", default=False, help="EXP-4: add the historical late-rate feature (requires --params so the tuned settings stay fixed)")
     args = parser.parse_args()
 
     if args.overrides and args.params is None:
         parser.error("--set requires --params")
 
-    data = prepare_data()
+    # EXP-4 changes only the feature: no default-settings run, no re-tuning
+    if args.late_rate and args.params is None:
+        parser.error("--late-rate requires --params")
+
+    data = prepare_data(late_rate=args.late_rate)
     if args.tune > 0:
         run_hyperopt(data, args.tune)
     elif args.params is not None:
         params = load_params(args.params, args.overrides)
         params_source = {"file": str(args.params), "overrides": args.overrides}
-        train_and_evaluate(params, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "final"], save=True, params_source=params_source)
+        feature_tag = RUNS[run_name(data[0])]["feature_tag"]
+        train_and_evaluate(params, data, [WANDB_MODEL_TAG, feature_tag, "final"], save=True, params_source=params_source)
     else:
       train_and_evaluate(DEFAULT_HYPERPARAMS_DICT, data, [WANDB_MODEL_TAG, WANDB_FEATURE_TAG, "default"], save=True)
 
