@@ -58,6 +58,32 @@ def compute_loss(y_true, probabilities):
         "pr_auc_over_floor": float(pr_auc_over_floor)
     }
 
+# EVAL-4: score a split at a threshold that was chosen on the validation set
+def score_at_threshold(y_true, probs, threshold):
+    # scores that do not require thresholds
+    scores = compute_loss(y_true, probs)
+
+    # label each of the flights with the threshold chosen from validation for our predictions
+    preds = (probs >= threshold).astype(int)
+
+    # get the confusion matrix
+    tn, fp, fn, tp = confusion_matrix(y_true, preds, labels=[0,1]).ravel()
+
+    # get the precision, recall, f1 score, zero divison makes sure no errors if we divide by 0
+    p, r, f, _ = precision_recall_fscore_support(y_true, preds, average="binary", zero_division=0)
+
+    # get the floor for the testing set
+    floor = scores["floor"]
+    scores.update({
+        "f1_floor": float(2 * floor / (1 + floor)), # f1 if we predicted everything as late
+        "threshold": float(threshold),
+        "precision": float(p),
+        "recall": float(r),
+        "f1": float(f),
+        "confusion_matrix": {"tp": int(tp), "fp": int(fp), "fn": int(fn), "tn": int(tn)}
+    })
+    return scores
+
 
 # Report
 def print_report(m ,floor):
@@ -143,9 +169,10 @@ def save_json(metric_path, results):
     print(f"Saved metrics to {metric_path}")
 
 # connection to weights and biases
+SPLITS = ["train", "validation", "test"]
 def log_to_wandb(results, figures, tags, history=None):
     """
-    Log the results and figures to Weights and Biases (wandb), both training and validation metrics are logged to the run summary. If a history of metrics is provided, it will be logged as well.
+    Log the results and figures to Weights and Biases (wandb), the train, validation, and testing metrics are logged to the run summary. If a history of metrics is provided, it will be logged as well.
 
     Args:
         results (dict): Dictionary containing the results to log.
@@ -161,14 +188,10 @@ def log_to_wandb(results, figures, tags, history=None):
                      project=WANDB_PROJECT, 
                      entity=WANDB_ENTITY, 
                      tags=tags, 
-                     config={label: results[label] for label in results.keys() if label not in ["validation", "train"]}) as run:
+                     config={label: results[label] for label in results.keys() if label not in SPLITS}) as run:
 
-        # log both the training and validation metrics to the run summary
-        overall_metrics = {}
-        overall_metrics["validation"] = results["validation"]
-        overall_metrics["train"] = results["train"]
-
-        run.summary.update(overall_metrics)
+        # log whichever splits this run uses, either training + validation or one time validation and testing
+        run.summary.update({split: results[split] for split in SPLITS if split in results})
 
         # log the history if it exists
         if history:

@@ -1,0 +1,205 @@
+{
+  "run": "EVAL-4",
+  "date": "2026-11-25",
+  "split": "test",
+  "rows": 1199540,
+  "versions": {
+    "pandas": "3.0.5",
+    "sklearn": "1.9.0",
+    "xgboost": "3.4.1",
+    "lightgbm": "4.7.0"
+  },
+  "models": {
+    "MOD-1": {
+      "model": "MOD-1",
+      "role": "final",
+      "model_file": "models/mod1_logreg.joblib",
+      "sha256": "41c81efbbb375d5fc297175fd1f7e07c48ac7ad55425849a77c3b3036b19cc69",
+      "threshold": 0.23328360483268343,
+      "validation": {
+        "pr_auc": 0.3154450467853589,
+        "log_loss": 0.47945413170827644,
+        "floor": 0.2019888160810276,
+        "f1_floor": 0.33609100746809484,
+        "pr_auc_over_floor": 1.5616956072400487,
+        "threshold": 0.23328360483268343,
+        "precision": 0.2877038808194825,
+        "recall": 0.620682147432945,
+        "f1": 0.39316470535190945,
+        "confusion_matrix": {
+          "tp": 74120,
+          "fp": 183506,
+          "fn": 45297,
+          "tn": 288283
+        }
+      },
+      "unseen": {
+        "Reporting_Airline": 0,
+        "Origin": 51,
+        "Dest": 48,
+        "DepTimeBlk": 0,
+        "ArrTimeBlk": 0,
+        "OriginState": 0,
+        "DestState": 0,
+        "OriginCityMarketID": 51,
+        "DestCityMarketID": 48,
+        "DayofMonth": 0,
+        "DayOfWeek": 0
+      },
+      "listed_but_untrained": {},
+      "test": {
+        "log_loss": 0.5165851532116242,
+        "pr_auc": 0.3518566739159604,
+        "floor": 0.2355461260149724,
+        "pr_auc_over_floor": 1.4937909608990758,
+        "f1_floor": 0.38128261026511934,
+        "threshold": 0.23328360483268343,
+        "precision": 0.33646519907616995,
+        "recall": 0.6207887537294681,
+        "f1": 0.436402087441143,
+        "confusion_matrix": {
+          "tp": 175402,
+          "fp": 345906,
+          "fn": 107145,
+          "tn": 571087
+        }
+      }
+    },
+    "MOD-2": {
+      "model": "MOD-2",
+      "role": "final",
+      "model_file": "models/mod2_xgboost.joblib",
+      "sha256": "bf3157a0a43da10228c282acfc65684ca3044e792170846310bf5c24e574fe67",
+      "threshold": 0.22943876683712006,
+      "validation": {
+        "pr_auc": 0.3317061223466792,
+        "log_loss": 0.4731478989124298,
+        "floor": 0.2019888160810276,
+        "f1_floor": 0.33609100746809484,
+        "pr_auc_over_floor": 1.642200438531288,
+        "threshold": 0.22943876683712006,
+        "precision": 0.2970718858746852,
+        "recall": 0.6469598130919383,
+        "f1": 0.40717609794403953,
+        "confusion_matrix": {
+          "tp": 77258,
+          "fp": 182807,
+          "fn": 42159,
+          "tn": 288982
+        }
+      },
+      "unseen": {
+        "DepTimeBlk": 0,
+        "ArrTimeBlk": 0,
+        "Origin": 0,
+        "Dest": 0,
+        "OriginCityMarketID": 51,
+        "DestCityMarketID": 48,
+        "OriginState": 0,
+        "DestState": 0,
+        "Reporting_Airline": 0
+      },
+      "listed_but_untrained": {
+        "Origin": {
+          "values": [
+            "CSG",
+            "LNS"
+          ],
+          "rows": 51
+        },
+        "Dest": {
+          "values": [
+            "CSG",
+            "LNS"
+          ],
+          "rows": 48
+        }
+      },
+      "test": {
+        "log_loss": 0.5108434557914734,
+        "pr_auc": 0.3684560988047977,
+        "floor": 0.2355461260149724,
+        "pr_auc_over_floor": 1.5642630385751999,
+        "f1_floor": 0.38128261026511934,
+        "threshold": 0.22943876683712006,
+        "precision": 0.34626507999078904,
+        "recall": 0.6279946345209824,
+        "f1": 0.4463955742338496,
+        "confusion_matrix": {
+          "tp": 177438,
+          "fp": 334996,
+          "fn": 105109,
+          "tn": 581997
+        }
+      }
+    },
+    "MOD-3": {
+      "model": "MOD-3",
+      "role": "reference",
+      "model_file": "models/mod3_lightgbm.joblib",
+      "sha256": "bc243388243b5eff20bd5d9076be741a721312aef6579315a5a498ea4fd0d892",
+      "threshold": 0.2279786389156987,
+      "validation": {
+        "pr_auc": 0.3308261253261554,
+        "log_loss": 0.4734022383120562,
+        "floor": 0.2019888160810276,
+        "f1_floor": 0.33609100746809484,
+        "pr_auc_over_floor": 1.637843776426933,
+        "threshold": 0.2279786389156987,
+        "precision": 0.2965514354112511,
+        "recall": 0.6524866643777687,
+        "f1": 0.4077725793114998,
+        "confusion_matrix": {
+          "tp": 77918,
+          "fp": 184829,
+          "fn": 41499,
+          "tn": 286960
+        }
+      },
+      "unseen": {
+        "DepTimeBlk": 0,
+        "ArrTimeBlk": 0,
+        "Origin": 0,
+        "Dest": 0,
+        "OriginCityMarketID": 51,
+        "DestCityMarketID": 48,
+        "OriginState": 0,
+        "DestState": 0,
+        "Reporting_Airline": 0
+      },
+      "listed_but_untrained": {
+        "Origin": {
+          "values": [
+            "CSG",
+            "LNS"
+          ],
+          "rows": 51
+        },
+        "Dest": {
+          "values": [
+            "CSG",
+            "LNS"
+          ],
+          "rows": 48
+        }
+      },
+      "test": {
+        "log_loss": 0.5110284708757119,
+        "pr_auc": 0.36708993893807285,
+        "floor": 0.2355461260149724,
+        "pr_auc_over_floor": 1.5584630711130392,
+        "f1_floor": 0.38128261026511934,
+        "threshold": 0.2279786389156987,
+        "precision": 0.3459363957597173,
+        "recall": 0.6306136678145583,
+        "f1": 0.44678143496734607,
+        "confusion_matrix": {
+          "tp": 178178,
+          "fp": 336882,
+          "fn": 104369,
+          "tn": 580111
+        }
+      }
+    }
+  }
+}
