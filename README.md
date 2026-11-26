@@ -1,5 +1,46 @@
 # Flight Delay Classification
 
+> **AI-assistance notice:** This document was written with help from an AI
+> assistant (Claude, via Claude Code). The research questions, the choices
+> between approaches, and the conclusions are the team's. The assistant reformatted
+> and edited the text, proposed some methods and checks (for example, the
+> test-set freeze), and formatted the tables.
+> Every number comes from a committed results file or W&B run named
+> next to it. The team reviewed the content and is responsible for it. It is
+> acknowledged here per the course's AI-use policy.
+
+## At a glance
+
+| | |
+|---|---|
+| **Task** | Binary classification: will a US domestic flight arrive 15+ min late? Booking-time features only (no weather, no live delays) |
+| **Data** | 6.9M flights from BTS (Jul 2025 – Jun 2026), split by date: 5.1M train / 591K validation / 1.2M held-out test |
+| **Final model** | XGBoost on 13 features, tuned with a 90-trial hyperopt search |
+| **Test PR-AUC** | **0.368**, 1.56× the no-skill baseline (0.236) and above logistic regression (0.352) |
+| **Test recall / precision** | Catches **63%** of late flights; flagged flights are late 35% of the time vs. a 24% base rate |
+| **Test set** | Scored **once**, at the end, with hash-locked models and thresholds fixed on validation. Score vs. baseline fell only 4.7% from validation to test |
+
+What was done:
+
+- **Compared three models:** logistic regression baseline, XGBoost, and
+  LightGBM. LightGBM tied XGBoost; XGBoost was picked because it trains
+  3.6× faster.
+- **Tested ideas and dropped the ones that didn't work:** a historical
+  late-rate feature and 12 extra months of training data did not improve
+  XGBoost on validation, so neither was adopted.
+- **Analyzed the errors with SHAP:** scheduled time of day drives ~40% of
+  predictions. The model ranks large hubs (ORD, JFK, CLT) and evening flights
+  worst.
+- **Made it reproducible:** locked dependencies (uv), every run tracked in
+  Weights & Biases, and every reported number traced to a committed results
+  file.
+
+**Stack:** Python, pandas, scikit-learn, XGBoost, LightGBM, hyperopt, SHAP,
+Weights & Biases, Parquet, uv.
+
+Details and sources: [`docs/findings.md`](docs/findings.md); final scores:
+`reports/final/eval4_metrics.json`.
+
 Predicting whether a scheduled flight will arrive 15+ minutes late (`ArrDel15`),
 using only information known at booking time. Data is BTS Reporting Carrier
 On-Time Performance, July 2025 – June 2026.

@@ -1,5 +1,14 @@
 # Data Dictionary
 
+> **AI-assistance notice:** This document was written with help from an AI
+> assistant (Claude, via Claude Code). The research questions, the choices
+> between approaches, and the conclusions are the team's. The assistant reformatted
+> and edited the text, proposed some methods and checks (for example, the
+> test-set freeze and the SHAP comparison), ran read-only checks, and formatted
+> the tables. Every number comes from a committed results file or W&B run named
+> next to it. The team reviewed the content and is responsible for it. It is
+> acknowledged here per the course's AI-use policy.
+
 **What this file describes**:
 
 - Every column in the BTS Reporting Carrier On-Time Performance data (109 columns, definitions in `docs/readme.html`) and what we do with it: model feature, target, split key, filter-only, or dropped.
