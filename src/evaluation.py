@@ -169,9 +169,10 @@ def save_json(metric_path, results):
     print(f"Saved metrics to {metric_path}")
 
 # connection to weights and biases
+SPLITS = ["train", "validation", "test"]
 def log_to_wandb(results, figures, tags, history=None):
     """
-    Log the results and figures to Weights and Biases (wandb), both training and validation metrics are logged to the run summary. If a history of metrics is provided, it will be logged as well.
+    Log the results and figures to Weights and Biases (wandb), the train, validation, and testing metrics are logged to the run summary. If a history of metrics is provided, it will be logged as well.
 
     Args:
         results (dict): Dictionary containing the results to log.
@@ -187,14 +188,10 @@ def log_to_wandb(results, figures, tags, history=None):
                      project=WANDB_PROJECT, 
                      entity=WANDB_ENTITY, 
                      tags=tags, 
-                     config={label: results[label] for label in results.keys() if label not in ["validation", "train"]}) as run:
+                     config={label: results[label] for label in results.keys() if label not in SPLITS}) as run:
 
-        # log both the training and validation metrics to the run summary
-        overall_metrics = {}
-        overall_metrics["validation"] = results["validation"]
-        overall_metrics["train"] = results["train"]
-
-        run.summary.update(overall_metrics)
+        # log whichever splits this run uses, either training + validation or one time validation and testing
+        run.summary.update({split: results[split] for split in SPLITS if split in results})
 
         # log the history if it exists
         if history:
