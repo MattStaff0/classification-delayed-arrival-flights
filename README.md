@@ -283,6 +283,26 @@ uv run python -m src.final_evaluation --split test   # the one real run (already
 - **W&B:** three runs named `EVAL-4`, tagged with the model,
   `13-baseline-features`, `test`, and `final` or `reference`.
 
+## Error analysis (EVAL-5)
+
+Validation only; reads the frozen MOD-2 model (hash checked) and never the test
+split. Not logged to W&B. Takes about 40 s (SHAP for every validation flight).
+Results: `docs/findings.md` (EVAL-5).
+
+```bash
+uv run python -m src.error_analysis                      # groups below 1,000 validation flights are kept but not ranked
+uv run python -m src.error_analysis --min-flights 2000   # a different cutoff
+```
+
+- **Outputs** in `reports/eval5/`: `eval5_feature_importance.csv` and
+  `figures/eval5_feature_importance.png` (total gain on train next to mean
+  |SHAP| on validation), `eval5_groups_Reporting_Airline.csv`,
+  `eval5_groups_Origin.csv`, `eval5_groups_DepTimeBlk.csv` (per group: flights,
+  late rate, mean probability, PR-AUC, `pr_auc_over_floor`), and
+  `eval5_error_cases.csv` (confident and random false positives and false
+  negatives at the frozen threshold, with their top SHAP contributions).
+- Rerunning gives the same files: the random cases use a fixed seed.
+
 ## Tracking runs with Weights & Biases
 
 Every model run is logged to the shared W&B project `flight-classifier` (team

@@ -1,0 +1,13 @@
+kind,row,probability,late,FlightDate,Reporting_Airline,Origin,Dest,DepTimeBlk,ArrTimeBlk,DayOfWeek,Distance,top_reasons
+confident_false_positive,218938,0.8222243785858154,0,2026-04-12,G4,HTS,SFB,2100-2159,2300-2359,7,665.0,"Dest +0.50, Origin +0.46, ArrTimeBlk +0.42"
+confident_false_positive,496066,0.768787145614624,0,2026-04-26,G4,CKB,SFB,2100-2159,2300-2359,7,727.0,"Dest +0.40, ArrTimeBlk +0.37, DayOfWeek +0.37"
+confident_false_positive,495894,0.753472626209259,0,2026-04-26,G4,SFB,HTS,1800-1859,2000-2059,7,665.0,"ArrTimeBlk +0.41, DepTimeBlk +0.36, Origin +0.34"
+confident_false_negative,123716,0.016420036554336548,1,2026-04-07,OO,EKO,SLC,0600-0659,0800-0859,2,200.0,"Origin -0.66, DepTimeBlk -0.53, ArrTimeBlk -0.38"
+confident_false_negative,188996,0.022254107519984245,1,2026-04-10,WN,ITO,HNL,0600-0659,0700-0759,5,216.0,"DepTimeBlk -0.76, ArrTimeBlk -0.50, Origin -0.45"
+confident_false_negative,321760,0.022769870236516,1,2026-04-17,OO,EKO,SLC,0600-0659,0800-0859,5,200.0,"Origin -0.65, DepTimeBlk -0.58, ArrTimeBlk -0.40"
+random_false_positive,382182,0.39125606417655945,0,2026-04-20,OO,ORD,PIT,1500-1559,1700-1759,1,413.0,"Origin +0.35, ArrTimeBlk +0.13, OriginCityMarketID +0.12"
+random_false_positive,57243,0.2876310646533966,0,2026-04-03,AS,GEG,SEA,1400-1459,1600-1659,5,224.0,"Reporting_Airline +0.13, DayOfWeek +0.11, DepTimeBlk +0.09"
+random_false_positive,467684,0.39178964495658875,0,2026-04-24,WN,SLC,DEN,1600-1659,1700-1759,5,391.0,"Dest +0.23, DepTimeBlk +0.22, ArrTimeBlk +0.20"
+random_false_negative,41262,0.14988860487937927,1,2026-04-03,F9,DCA,DEN,0700-0759,0900-0959,5,1476.0,"DepTimeBlk -0.35, ArrTimeBlk -0.33, Reporting_Airline +0.20"
+random_false_negative,420312,0.18980033695697784,1,2026-04-22,OO,SFO,SMF,1800-1859,1900-1959,3,86.0,"DayOfWeek -0.23, ArrTimeBlk +0.16, DepTimeBlk +0.16"
+random_false_negative,532414,0.2105785310268402,1,2026-04-27,AS,SEA,SNA,1300-1359,1600-1659,1,978.0,"Dest -0.22, DayOfWeek +0.13, Reporting_Airline +0.10"

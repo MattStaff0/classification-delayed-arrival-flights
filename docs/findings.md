@@ -1141,3 +1141,163 @@ Counts come from the `unseen` and `listed_but_untrained` blocks in the JSON. Wit
   the ranking: XGBoost beats the baseline by the same margin".
 - `reports/final/figures/eval4_test_pr_curves.png`: the three test PR curves
   with each frozen threshold marked; MOD-2 and MOD-3 lie on top of each other.
+
+---
+
+## EVAL-5: where MOD-2 makes its errors (validation)
+
+Validation only (Apr 2026, 591,206 flights); test is never read. Uses the
+frozen MOD-2 file (hash checked) and the same encoding path as EVAL-4. Script:
+`src/error_analysis.py`, run with `uv run python -m src.error_analysis`.
+
+### Which features the model relies on
+
+Two measures, shown side by side because they answer different questions:
+
+- **Total gain** (`importance_type="total_gain"`): how much each feature
+  improved the *training* loss, summed over all its splits, while the trees
+  were built. Not `weight` (number of splits), which favors many-valued columns
+  (`Origin` has 2,551 splits but a small average gain of 145; `DayOfWeek` 507
+  splits at 401 each), and not `gain` (average per split), which ignores how
+  often a feature is used.
+- **Mean |SHAP|** on validation (`pred_contribs=True`): how far each feature
+  moves the predictions on new flights, in log-odds. Checked that each flight's
+  contributions plus the bias add up exactly to its predicted probability. It
+  measures influence, not correctness. The two use different units, so compare
+  shares.
+
+| Feature | Total gain share (train) | Mean \|SHAP\| share (validation) |
+|---|---|---|
+| `ArrTimeBlk` | 20.9% | 19.4% |
+| `DepTimeBlk` | 18.9% | 18.0% |
+| `Reporting_Airline` | 7.1% | 12.5% |
+| `DayOfWeek` | 7.3% | 10.4% |
+| `Origin` | 13.2% | 10.2% |
+| `Dest` | 10.8% | 9.7% |
+| `DayofMonth` | 6.4% | 5.4% |
+| `OriginCityMarketID` / `DestCityMarketID` | 6.3% / 5.8% | 4.7% / 4.7% |
+| `CRSElapsedTime` | 0.4% | 2.3% |
+| `OriginState` / `DestState` | 1.7% / 1.1% | 1.3% / 0.9% |
+| `Distance` | 0.2% | 0.4% |
+
+Source: `reports/eval5/eval5_feature_importance.csv`.
+
+- **When the flight is scheduled matters most.** The two time blocks carry
+  about 40% on both measures: later flights are more often late.
+- **Where matters next, but less on new data than in training.** The airport
+  and city market columns lose share on validation (`Origin` 13.2% → 10.2%,
+  markets about 6% → 4.7%), while low-cardinality columns gain (airline 7.1% →
+  12.5%, day of week 7.3% → 10.4%). With 358 airports, many splits fit
+  training-specific patterns of a few airports; that gain does not carry over,
+  consistent with MOD-2's 8.3% train–validation gap.
+- **Flight length barely matters** (`Distance` and `CRSElapsedTime` under 3%
+  together).
+
+### Which groups the model ranks well and badly
+
+Each group (an airline, an origin airport, a departure time block) is scored
+on its own flights with `compute_loss`. Groups differ in late rate, so the
+comparison is `pr_auc_over_floor` (PR-AUC ÷ the group's own late rate).
+
+**Minimum group size: 1,000 validation flights.** Groups below it stay in the
+CSVs (`enough_flights` = False) but are not ranked or quoted. Reason: a model
+with no skill (random scores, true value 1.0) scores between 0.86 and 1.54
+(5th–95th percentile) on a group of 200 flights with 30 late, by luck alone,
+and 0.92–1.18 on 1,000 flights. The cutoff keeps all 13 airlines and 19 time
+blocks, and 93 of 342 origin airports, which still cover 90.4% of validation
+flights (the median airport has 238 April flights).
+
+| Group | Best (`pr_auc_over_floor`) | Worst |
+|---|---|---|
+| Airline | WN 1.80, G4 1.63, UA 1.58 | F9 1.43, NK 1.41, MQ 1.32 |
+| Origin airport | SJC 2.41, BOI 2.37, FAT 2.31 | CLT 1.36, JFK 1.34, ORD 1.24 |
+| Departure block | 0001–0559 1.80, 0600–0659 1.73, 0800–0859 1.61 | 2000–2059 1.36, 1600–1659 1.33, 1800–1859 1.33 |
+
+Source: `reports/eval5/eval5_groups_*.csv` (every group, with flights, late
+rate, mean predicted probability, PR-AUC, log loss).
+
+- **What a group's score means.** Inside one group the grouping feature is
+  constant, so it cannot help: the score only measures how well the model
+  ranks flights *within* that group. Every time block therefore scores below
+  the model's overall 1.64.
+- **Morning ranks best, evening worst.** Two reasons. The ratio's ceiling is
+  1 ÷ late rate (12.2 for 0001–0559 at 0.082, 3.5 for 1800–1859 at 0.283), so
+  groups with few late flights can score higher. And (a hypothesis, not
+  tested) evening delays are mostly knock-on delays from earlier flights and
+  afternoon weather, which the schedule-only features cannot see; the first
+  flight of the day does not inherit a delay.
+- **Large hubs rank worst** (ORD, JFK, CLT): many flights with similar
+  schedules, delayed by congestion and weather the features do not include.
+- **Where the model expects the wrong number of late flights.** Overall it
+  predicts 0.227 on average against April's 0.202 (train's late rate is 0.224),
+  so about +0.025 is expected everywhere. Beyond that: it **under-predicts**
+  Spirit (NK: 0.279 vs. 0.346 actual), SFO (0.201 vs. 0.253), and DAL (0.239
+  vs. 0.289), and **over-predicts** ANC (0.173 vs. 0.067), EWR (0.245 vs. 0.150),
+  JFK (0.258 vs. 0.184), and Alaska (AS: 0.225 vs. 0.158). These groups had a
+  different April than their training months.
+
+### Representative false positives and false negatives
+
+At the frozen threshold 0.2294: 182,807 false positives (flagged late, on
+time) and 42,159 false negatives (not flagged, late). Most are close calls:
+the median false positive has probability 0.304 (10th–90th percentile
+0.242–0.425) and the median false negative 0.170 (0.101–0.218). There are 4×
+more false positives because max-F1 picked a low threshold that flags 44% of
+flights to catch 65% of the late ones.
+
+Three of each kind were picked two ways: the most **confident** mistakes (blind
+spots) and a **random** sample (seed 42, what a typical error looks like).
+"Top reasons" are the three largest SHAP contributions in log-odds (+ pushes
+toward late); every flight starts from a bias of −1.247 (probability 0.22).
+
+| Kind | Flight (Apr 2026) | Probability | Top reasons |
+|---|---|---|---|
+| Confident FP | G4 HTS→SFB, Sun 12th, 9 pm | 0.822 | `Dest` +0.50, `Origin` +0.46, `ArrTimeBlk` +0.42 |
+| Confident FP | G4 CKB→SFB, Sun 26th, 9 pm | 0.769 | `Dest` +0.40, `ArrTimeBlk` +0.37, `DayOfWeek` +0.37 |
+| Confident FP | G4 SFB→HTS, Sun 26th, 6 pm | 0.753 | `ArrTimeBlk` +0.41, `DepTimeBlk` +0.36, `Origin` +0.34 |
+| Confident FN | OO EKO→SLC, Tue 7th, 6 am | 0.016 | `Origin` −0.66, `DepTimeBlk` −0.53, `ArrTimeBlk` −0.38 |
+| Confident FN | WN ITO→HNL, Fri 10th, 6 am | 0.022 | `DepTimeBlk` −0.76, `ArrTimeBlk` −0.50, `Origin` −0.45 |
+| Confident FN | OO EKO→SLC, Fri 17th, 6 am | 0.023 | `Origin` −0.65, `DepTimeBlk` −0.58, `ArrTimeBlk` −0.40 |
+| Random FP | OO ORD→PIT, Mon, 3 pm | 0.391 | `Origin` +0.35, `ArrTimeBlk` +0.13, `OriginCityMarketID` +0.12 |
+| Random FP | AS GEG→SEA, Fri, 2 pm | 0.288 | `Reporting_Airline` +0.13, `DayOfWeek` +0.11, `DepTimeBlk` +0.09 |
+| Random FP | WN SLC→DEN, Fri, 4 pm | 0.392 | `Dest` +0.23, `DepTimeBlk` +0.22, `ArrTimeBlk` +0.20 |
+| Random FN | F9 DCA→DEN, Fri, 7 am | 0.150 | `DepTimeBlk` −0.35, `ArrTimeBlk` −0.33, `Reporting_Airline` +0.20 |
+| Random FN | OO SFO→SMF, Wed, 6 pm | 0.190 | `DayOfWeek` −0.23, `ArrTimeBlk` +0.16, `DepTimeBlk` +0.16 |
+| Random FN | AS SEA→SNA, Mon, 1 pm | 0.211 | `Dest` −0.22, `DayOfWeek` +0.13, `Reporting_Airline` +0.10 |
+
+Source: `reports/eval5/eval5_error_cases.csv`.
+
+- **Confident false positives: the model learned a real pattern, and these
+  flights broke it.** Allegiant's (G4) Sunday-evening flights into Orlando
+  Sanford from small airports. In training, G4's evening flights into SFB were
+  late 52% of the time (2,051 flights; G4 overall 25%). Route, time, and
+  Sunday all push toward late; these particular flights were on time.
+- **Confident false negatives: the blind spot.** First flights of the day from
+  small airports (SkyWest from Elko; Southwest Hilo→Honolulu). Everything the
+  model can see says on time: EKO departures were late 3.3% of the time in
+  training (429 flights) and the 0600–0659 block 10.3% (vs. 22.4% overall).
+  Whatever delayed them (weather, a mechanical problem, a late crew) is not in
+  the schedule features.
+- **Typical errors are close calls.** The random cases sit 0.06–0.16 from the
+  threshold, and no single feature dominates: small pushes from the airport,
+  the time block, and the day add up to just over or under the line. These are
+  the price of one threshold for every flight, not a specific blind spot.
+- **The case for the presentation** (Project Description 3.4): the EKO→SLC
+  6 am flight at 1.6% that arrived late, next to the G4 9 pm Sanford flight at
+  82% that arrived on time. Together they show the model's limit: it predicts
+  from the schedule, and delays caused on the day are invisible to it.
+
+### Caveats
+
+- Validation only (April); groups may rank differently in other months.
+- SHAP measures how much a feature moves predictions, not whether that
+  movement is correct; total gain is measured on training data.
+- The cases are illustrations, not a sample large enough to estimate rates.
+- The explanation for evening and hub airports is a hypothesis; no delay-cause
+  or weather data was used to test it.
+
+### Figures
+
+- `reports/eval5/figures/eval5_feature_importance.png`: total gain share
+  (train) next to mean |SHAP| share (validation) for all 13 features. Suggested
+  slide: "Schedule time drives predictions; airports matter less on new data".
