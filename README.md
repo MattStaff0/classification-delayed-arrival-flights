@@ -257,6 +257,32 @@ uv run python -m src.ensemble.lightgbm_model --params reports/lightgbm/mod3_metr
   without logging a new W&B run or changing committed files, run with
   `WANDB_MODE=disabled` and then `git restore reports/`.
 
+## Scoring the test split (EVAL-4)
+
+Done once, on 2026-11-25; the results are final. `src/final_evaluation.py`
+scores the frozen models (MOD-1 and MOD-2 final, MOD-3 reference only) on test
+at the thresholds saved in their `.joblib` files. Results: `docs/findings.md`
+(EVAL-4).
+
+```bash
+uv run python -m src.final_evaluation --split val    # dry run: must reproduce every saved validation metric; writes nothing
+uv run python -m src.final_evaluation --split test   # the one real run (already done)
+```
+
+- `--split` is required, so the test run is always typed on purpose.
+- Before scoring, it checks each model file against the SHA-256 in
+  `FINAL_MODELS`; a retrained or overwritten model stops the script.
+- Test encoding comes from the feature and category lists stored in each saved
+  model, not from the model scripts, which this file never imports.
+- `--split test` refuses to run if `reports/final/eval4_metrics.json` exists.
+  Do not delete it to rerun: a second look at test after any change is tuning
+  on test.
+- **Outputs:** `reports/final/eval4_metrics.json` (validation and test blocks per
+  model, unseen-category counts, hashes, library versions) and
+  `reports/final/figures/eval4_val_vs_test.png`, `eval4_test_pr_curves.png`.
+- **W&B:** three runs named `EVAL-4`, tagged with the model,
+  `13-baseline-features`, `test`, and `final` or `reference`.
+
 ## Tracking runs with Weights & Biases
 
 Every model run is logged to the shared W&B project `flight-classifier` (team
@@ -286,7 +312,8 @@ it later with `uv run wandb sync wandb/<run-folder>`.
 
 **Adding W&B to a new model script:** import `log_to_wandb` and
 `compute_loss` from `src.evaluation`. Every model reports a `train` block next
-to `validation` (required: `log_to_wandb` raises `KeyError` without it). Call
+to `validation`. `log_to_wandb` sends whichever of `train`, `validation`, and
+`test` are present to the summary (`SPLITS` in `src/evaluation.py`). Call
 `log_to_wandb` once, after `save_json`. Do not import `wandb` in the model
 script.
 
@@ -303,7 +330,7 @@ log_to_wandb(results=results,
 - **Run name** comes from `results["run"]`: the issue ID (`MOD-1`, `MOD-2`, ...). An experiment run on more than one model
   adds the model so the runs can be told apart (`EXP-4-xgboost`,
   `EXP-4-logistic-regression`); W&B filters match the name exactly.
-- **Config** is every key of `results` except `train` and `validation`. Put
+- **Config** is every key of `results` except the split blocks (`train`, `validation`, `test`). Put
   hyperparameters and run info in `results`.
 - **Summary** is the `train` and `validation` blocks, nested, so W&B shows
   `train.log_loss`, `validation.log_loss`, `validation.pr_auc`, and so on.
@@ -318,7 +345,8 @@ log_to_wandb(results=results,
 - **Tags** are the model and the feature set, in kebab-case, spelled the same
   in every script (e.g. `logistic-regression`, `xgboost`, `lightgbm`,
   `13-baseline-features`, `13-plus-late-rate`), plus the run type: `default`,
-  `hyperopt-trial`, `final`, `boundary-check`, or `depth-check`. Runs on a
+  `hyperopt-trial`, `final`, `boundary-check`, or `depth-check`. The EVAL-4 test
+  runs are tagged `test` plus `final` or `reference`. Runs on a
   training window other than Jul 2025 – Mar 2026 also get a data tag counting
   the training months (`21-training-months`, `12-training-months`). A `final` run that was
   replaced keeps its tags and gets `superseded` added (never delete it: its
@@ -338,4 +366,5 @@ log_to_wandb(results=results,
   model actually used, at the best iteration (0.4762 at round 17). Sort and
   filter the runs table by `validation.pr_auc`, `validation.f1`, and
   `validation.log_loss`.
-- Only train and validation are logged. Never score or log the test split.
+- Training and experiment runs log only train and validation. The test split
+  is scored and logged only by `src/final_evaluation.py` (EVAL-4, done once).

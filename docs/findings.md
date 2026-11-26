@@ -8,8 +8,8 @@ file or the W&B project `flight-classifier` (team
 
 All models use the same 13 base features, train on Jul 2025 – Mar 2026 (except
 EXP-2, which tests a longer training window), and are scored on validation
-(Apr 2026). The test split (May–Jun 2026) has not been
-scored yet (EVAL-4).
+(Apr 2026). The test split (May–Jun 2026) was scored once, at the end, for
+the frozen final models (EVAL-4, below the headline table and in its own section).
 
 ## Headline so far
 
@@ -35,6 +35,22 @@ Sources: `reports/logistic_regression/mod1_metrics.json`,
 `reports/lightgbm/mod3_metrics.json` (MOD-3 tuned; the search's own best,
 trial 26, is `git show e3351b6:reports/lightgbm/mod3_metrics.json`). "× no-skill" is
 `pr_auc_over_floor`; the gap is train ÷ validation `pr_auc_over_floor` − 1.
+
+### Final result: test (EVAL-4)
+
+Scored once on May–Jun 2026 (1,199,540 flights) at each model's frozen
+validation threshold. Test has more late flights than validation (0.2355 vs.
+0.202), so compare "× no-skill", not raw PR-AUC or F1.
+
+| Model | Validation PR-AUC | Test PR-AUC | Validation × no-skill | Test × no-skill | Validation F1 | Test F1 |
+|---|---|---|---|---|---|---|
+| No-skill | 0.202 | 0.236 | 1.00 | 1.00 | 0.336 | 0.381 |
+| MOD-1 logistic regression (baseline) | 0.315 | 0.352 | 1.56 | 1.49 | 0.393 | 0.436 |
+| **MOD-2 XGBoost, tuned (final)** | **0.332** | **0.369** | **1.64** | **1.56** | **0.407** | **0.446** |
+| MOD-3 LightGBM, tuned (reference only) | 0.331 | 0.367 | 1.64 | 1.56 | 0.408 | 0.447 |
+
+Source: `reports/final/eval4_metrics.json` (W&B runs `EVAL-4`: `qiwzflds`,
+`o4n36jg2`, `ubpfkx8j`).
 
 ---
 
@@ -1010,3 +1026,118 @@ back to 2024-07 for the project's dataset. `data/processed` is unchanged;
 - Suggested slide: the Results table's first four rows (train months, PR-AUC,
   F1, gap), titled "More data did not help: recent spring ties, a whole older
   year hurts".
+
+---
+
+## EVAL-4: the one-time test score
+
+### Setup
+
+- **What was scored.** MOD-1 (baseline) and MOD-2 (tree model, chosen in MOD-3
+  for training speed) are the final models; EXP-2 and EXP-4 adopted nothing.
+  MOD-3 was scored as a reference row only, with the rule written down before
+  scoring that its test result could not change which tree model is final
+  (picking between two tied models on test would use test to choose).
+- **Frozen before test was read.** Each model with the threshold saved in its
+  `.joblib` (chosen on validation by max F1), and a SHA-256 hash of the file,
+  because `models/` is gitignored and git cannot show the file is unchanged.
+  The freeze list was committed in `b28d0dd` and the scoring code in `258f06e`,
+  both before the test run.
+
+| Model | Role | File | Threshold | SHA-256 (first 8) |
+|---|---|---|---|---|
+| MOD-1 | final | `models/mod1_logreg.joblib` | 0.2333 | `41c81efb` |
+| MOD-2 | final | `models/mod2_xgboost.joblib` (W&B `qy84vjlu`) | 0.2294 | `bf3157a0` |
+| MOD-3 | reference | `models/mod3_lightgbm.joblib` (W&B `3k15e6d7`) | 0.2280 | `bc243388` |
+
+- **The scoring path** (`src/final_evaluation.py`) imports nothing from the
+  model scripts, so tuning code cannot reach it and later edits to those
+  scripts cannot change it. It checks the three hashes, then encodes test from
+  the feature list and category lists stored inside each model
+  (`get_categories()` for XGBoost, `pandas_categorical` for LightGBM; MOD-1's
+  pipeline does its own one-hot encoding), predicts, and scores with
+  `score_at_threshold` in `src/evaluation.py`, which takes the threshold as an
+  argument and never searches for one (`evaluate()` picks the max-F1
+  threshold on whatever data it gets, so calling it on test would tune on test).
+- **Checked before test.** `--split val` runs the same path on validation and
+  must reproduce every saved validation metric: all three matched exactly
+  (difference 0, same confusion counts), and the stored category lists match
+  what `encode()` builds from `train.parquet` for all 9 columns.
+- **Score once.** `--split` is required (no default), and `--split test`
+  refuses to run once `reports/final/eval4_metrics.json` exists. The JSON is
+  written before the figures and W&B, so a later failure cannot cause a rescore.
+
+### Results
+
+| | MOD-1 | MOD-2 (final) | MOD-3 (reference) |
+|---|---|---|---|
+| PR-AUC, validation → test | 0.3154 → 0.3519 | **0.3317 → 0.3685** | 0.3308 → 0.3671 |
+| `pr_auc_over_floor` | 1.562 → 1.494 (−4.4%) | **1.642 → 1.564 (−4.7%)** | 1.638 → 1.559 (−4.8%) |
+| F1 | 0.3932 → 0.4364 | **0.4072 → 0.4464** | 0.4078 → 0.4468 |
+| F1 ÷ `f1_floor` | 1.170 → 1.145 | 1.212 → 1.171 | 1.213 → 1.172 |
+| Precision / recall (test) | 0.337 / 0.621 | 0.346 / 0.628 | 0.346 / 0.631 |
+| Share of flights flagged late | 43.6% → 43.5% | 44.0% → 42.7% | 44.4% → 42.9% |
+| Log loss better than no-skill | 4.7% → 5.4% | 6.0% → 6.4% | 5.9% → 6.4% |
+
+Floor (late rate) 0.202 → 0.2355; `f1_floor` 0.336 → 0.381. Test confusion
+matrix for MOD-2: 177,438 TP, 334,996 FP, 105,109 FN, 581,997 TN.
+
+Source: `reports/final/eval4_metrics.json`.
+
+- **Raw PR-AUC and F1 went up, and that is not the model getting better.**
+  May–June has more late flights, which raises the score of any model,
+  including guessing (no-skill PR-AUC = the late rate). Against each split's
+  own floor, every model scored about 4–5% lower on test.
+- **Most of the drop is the test period, not tuning optimism.** The untuned
+  baseline (MOD-1) dropped 4.4%; the two tuned models, whose settings, tree
+  count, and threshold were all chosen on validation, dropped 4.7–4.8%. Only
+  the extra ~0.4 points can be blamed on validation being optimistic. The
+  rest is shared: test is later (further from the training months) and covers
+  May and June, months train (Jul 2025 – Mar 2026) does not contain.
+- **The drop is small and partly mechanical.** `pr_auc_over_floor` cannot reach
+  the same maximum on both splits (its ceiling is 1 ÷ floor: 4.95 on
+  validation, 4.25 on test), and log loss relative to a no-skill model got
+  slightly *better* on test for all three models. So the threshold-free
+  evidence is: ranking held up roughly as well as on validation.
+- **The ranking of the models held.** MOD-2 beat MOD-1 by +0.0166 PR-AUC on
+  test vs. +0.0163 on validation (`pr_auc_over_floor` +4.7% vs. +5.2%), and by
+  +0.010 F1. MOD-3 stayed tied with MOD-2 (−0.4% `pr_auc_over_floor`, +0.0004
+  F1), so the MOD-3 decision (tie, XGBoost 3.6× faster) stands; as agreed
+  before scoring, this row does not change the choice.
+- **The frozen thresholds still worked.** They flagged a similar share of
+  flights late as on validation, and recall stayed at 0.62–0.63 while precision
+  rose with the late rate. F1 relative to its floor fell somewhat more than
+  PR-AUC relative to its floor (MOD-2 −3.4%), which is the expected cost of a
+  threshold fixed in advance. It was not re-tuned on test.
+
+### Unseen test categories (CSG, LNS)
+
+51 `Origin` and 48 `Dest` test rows (0.004% of test) use CSG or LNS, which have
+no training rows. Each model handled them differently, which matches the
+checks run on validation rows beforehand:
+
+| Model | `Origin` / `Dest` | City market IDs | Effect |
+|---|---|---|---|
+| MOD-1 | not in its one-hot categories: all-zero columns (51 / 48 rows) | all-zero columns (51 / 48) | adds 0 to the log-odds; the median airport coefficient is −0.006, so about a typical airport |
+| MOD-2 | kept as categories with 0 training rows (51 / 48), because `preprocess.py` built the lists from all months | missing (51 / 48) | a listed-but-untrained code goes the "not listed" way at each split; that matched the missing-value branch in only 32% (`Origin`) / 0% (`Dest`) of 5,000 probe rows, with at most 0.03 change in probability |
+| MOD-3 | kept as categories with 0 training rows (51 / 48) | missing (51 / 48) | LightGBM sends unlisted and missing values the same way, so identical to missing |
+
+Counts come from the `unseen` and `listed_but_untrained` blocks in the JSON. With
+99 rows out of 1.2 million, they cannot move the headline scores.
+
+### Caveats
+
+- One test period (two months, one season). The comparison is unbiased but
+  says nothing about winter or a different year.
+- The MOD-2 vs. MOD-1 gap (+0.017 PR-AUC) is consistent across validation and
+  test but has no confidence interval; no bootstrap was run.
+- The test results are final: no model, threshold, or encoding was changed
+  after scoring, and the script refuses a second run.
+
+### Figures
+
+- `reports/final/figures/eval4_val_vs_test.png`: `pr_auc_over_floor` per model,
+  validation next to test. Suggested final results slide, titled "Test confirms
+  the ranking: XGBoost beats the baseline by the same margin".
+- `reports/final/figures/eval4_test_pr_curves.png`: the three test PR curves
+  with each frozen threshold marked; MOD-2 and MOD-3 lie on top of each other.
